@@ -21,15 +21,19 @@ source .venv/bin/activate
 2. Install Dependencies
 
 pip install -r requirements.txt
-# if using playwright:
+
 playwright install
 
 
-3. Run the Selenium pipeline:
+3. Run the scraper (default Selenium pipeline):
 
-python main.py --url "https://liftingcast.com/meets/mfnfcu3cri6q/roster" --engine selenium
+python main.py 
 
-# mfnfcu3cri6q is the identifier for a specific competition
+Or specify a different meet URL in the code.
+
+Output HTML reports will appear in:
+
+output/
 
 4. Or run the Streamlit UI:
 streamlit run app/streamlit_app.py
