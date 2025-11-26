@@ -2,50 +2,82 @@
 """
 Main entry point for the LiftingCast → OpenPowerlifting scraper pipeline.
 """
+import os
 
 from scraper.selenium_scraper import (
     scrape_liftingcast_roster,
-    search_opl_for_name,
-    scrape_opl_profile,
-    build_driver,
+    get_driver,
+)
+from scraper.playwright_scraper import (
+    scrape_with_playwright,
+    scrape_playwright_sync,
+)
+from scraper.utils import (
+    lifter_link_selector,
+    wait_for_lifters_condition,
+    save_html_report,
+    slugify,
+    clean_lifter_name,
 )
 
-from scraper.utils import slugify
-from reports.html_report import build_html_report, save_html_report
+from opl.opl_api import (
+    find_first_match_from_api, 
+    query_opl_api_by_name, 
+    load_opl_csv, 
+    find_matches_in_csv
+)
+
+from opl_ipf.fetcher import(
+    Page, 
+)
+
+from opl_ipf.lookup import(
+    try_fetch_openipf,
+)
+
+from reports.html_report import generate_html_report
 
 
-def run_pipeline(meet_url: str):
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+
+def run_pipeline(meet_url: str) -> None:
     print(f"\n🔍 Fetching roster from: {meet_url}")
-    names = scrape_liftingcast_roster(meet_url)
-    print(f" → Found {len(names)} athletes\n")
+    roster = scrape_liftingcast_roster(meet_url)
+    print(f" → Found {len(roster)} athletes\n")
 
-    driver = build_driver(headless=True)
-    opl_results = []
+    people = []
 
-    for name in names:
-        print(f"Searching OpenPowerlifting for: {name}")
+    for entry in roster:
+        raw_label, liftingcast_url = entry
+        lifter_name = clean_lifter_name(raw_label)
 
-        opl_url = search_opl_for_name(driver, name)
+        print(f"🔎 Checking OpenIPF for: {lifter_name}")
 
-        if opl_url:
-            print(f" ✓ Found OPL profile: {opl_url}")
-            data = scrape_opl_profile(driver, opl_url)
+        ipf_data = try_fetch_openipf(lifter_name)
+
+        if ipf_data:
+            print(f" ✓ Found OpenIPF profile: {ipf_data['profile_url']}")
+            opl_profile = ipf_data["profile_url"]
+            summary = ipf_data["meet_history"]
         else:
-            print(" ✗ No OPL match found")
-            data = None
+            print(" ✗ No OpenIPF match found")
+            opl_profile = None
+            summary = None
 
-        opl_results.append({
-            "name": name,
-            "opl_url": opl_url,
-            "data": data,
-        })
-
-    driver.quit()
+        people.append(
+            {
+                "name": lifter_name,
+                "liftingcast_href": liftingcast_url,
+                "opl_profile": opl_profile,
+                "opl_summary": summary,
+            }
+        )
 
     print("\n📄 Building HTML report…")
-    html = build_html_report(opl_results)
+    html = generate_html_report(people)
 
-    filename = f"report_{slugify(meet_url)}.html"
+    filename = os.path.join(OUTPUT_DIR, f"report_{slugify(meet_url)}.html")
     save_html_report(html, filename)
 
     print(f"✅ Report saved → {filename}")
