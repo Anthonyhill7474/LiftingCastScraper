@@ -1,15 +1,5 @@
-"""
-Generate a human-friendly HTML report using Jinja2.
-The report contains:
- - Lifter name
- - Link to LiftingCast roster link
- - OpenPowerlifting profile link (if we have an ID or can create a search link)
- - Table of top meet results if available
-"""
-
 from jinja2 import Template
 from typing import List, Dict, Any
-import os
 import datetime
 
 TEMPLATE = """
@@ -42,7 +32,7 @@ TEMPLATE = """
         <a class="link" href="{{ p.opl_profile }}" target="_blank">{{ p.opl_profile }}</a>
       {% else %}
         <em>No profile found</em> —
-        <a class="link" href="https://www.openpowerlifting.org/search?name={{ p.name | urlencode }}" target="_blank">Search on OPL</a>
+        <a class="link" href="https://www.openpowerlifting.org/search?name={{ p.name }}" target="_blank">Search on OPL</a>
       {% endif %}
     </p>
 
@@ -70,17 +60,13 @@ TEMPLATE = """
 </html>
 """
 
-def generate_html_report(people: List[Dict[str, Any]], out_path: str):
+
+def generate_html_report(people: List[Dict[str, Any]]) -> str:
     """
-    people: list of dicts with keys:
-        - name
-        - liftingcast_href
-        - opl_profile (optional)
-        - opl_summary (optional: list of rows/dicts)
+    Render the HTML for the report and return it as a string.
     """
     tpl = Template(TEMPLATE)
-    rendered = tpl.render(people=people, now=datetime.datetime.utcnow().isoformat() + "Z")
-    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(rendered)
-    return out_path
+    return tpl.render(
+        people=people,
+        now=datetime.datetime.utcnow().isoformat() + "Z",
+    )
