@@ -13,10 +13,15 @@ This small project scrapes lifter names from a LiftingCast roster page, looks up
 1. Create and activate a virtual environment:
 
 
+# Create virtual environment
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 
+# Activate virtual environment
+```bash
+cd ~/PATH/TO/LiftingCastScraper
+source .venv/bin/activate
 
 2. Install Dependencies
 

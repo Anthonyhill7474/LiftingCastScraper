@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 
+# thank you to georgehawkins0 for this code
 class Page:
     '''A class to represent a page on openipf.org or openpowerlifting.org.'''
     def __init__(self, url=None, username=None, fetch=True):

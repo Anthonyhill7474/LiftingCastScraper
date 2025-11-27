@@ -8,23 +8,11 @@ from scraper.selenium_scraper import (
     scrape_liftingcast_roster,
     get_driver,
 )
-from scraper.playwright_scraper import (
-    scrape_with_playwright,
-    scrape_playwright_sync,
-)
+
 from scraper.utils import (
-    lifter_link_selector,
-    wait_for_lifters_condition,
     save_html_report,
     slugify,
     clean_lifter_name,
-)
-
-from opl.opl_api import (
-    find_first_match_from_api, 
-    query_opl_api_by_name, 
-    load_opl_csv, 
-    find_matches_in_csv
 )
 
 from opl_ipf.fetcher import(
