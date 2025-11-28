@@ -15,10 +15,6 @@ from scraper.utils import (
     clean_lifter_name,
 )
 
-from opl_ipf.fetcher import(
-    Page, 
-)
-
 from opl_ipf.lookup import(
     try_fetch_openipf,
 )
