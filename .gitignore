@@ -18,3 +18,7 @@ output/
 *.log
 
 
+#Python egg files
+*.egg-info/
+
+
