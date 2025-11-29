@@ -1,0 +1,20 @@
+[project]
+name = "liftingcastscraper"
+version = "0.1.0"
+description = "LiftingCast → OpenPowerlifting scraper"
+authors = [{name = "You"}]
+requires-python = ">=3.10"
+
+dependencies = [
+    "aiohttp",
+    "beautifulsoup4",
+    "jinja2",
+    "selenium",
+    "webdriver-manager",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
