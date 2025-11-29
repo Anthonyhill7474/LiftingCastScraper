@@ -4,8 +4,8 @@ All small functions shared between scrapers live here.
 """
 
 import logging
-import re
-import os
+import re #regular expressions
+import os # for direectory creation and file operatinos
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -23,7 +23,7 @@ def lifter_link_selector() -> str:
 def wait_for_lifters_condition(selector: str):
     """
     For Selenium expected_conditions usage: wait for presence of elements.
-    Returns a callable for WebDriverWait.
+    Returns a callable function for WebDriverWait.
     """
     def _cond(driver):
         return EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector))(driver)
@@ -33,8 +33,9 @@ def slugify(value: str) -> str:
     """
     Turn a URL or string into a filesystem-safe-ish slug.
     """
+    # slugify("https://liftingcast.com/meet/2024 Nationals")  → "liftingcast-com-meet-2024-nationals"
     value = value.strip().lower()
-    # strip scheme
+    # strip scheme, e.g. http:// or https://
     value = re.sub(r"^https?://", "", value)
     # replace non-alnum with hyphens
     value = re.sub(r"[^a-z0-9]+", "-", value)
@@ -53,7 +54,7 @@ def save_html_report(html: str, path: str):
 
 def clean_lifter_name(raw_label: str) -> str:
     """
-    Convert something like '110 - Kiren Sandhu' → 'Kiren Sandhu'.
+    Convert something like '105 - Anthony Hill' → 'Anthony Hill'.
     If there's no ' - ', just return the original string.
     """
     if " - " in raw_label:
