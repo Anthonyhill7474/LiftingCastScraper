@@ -1,8 +1,9 @@
-import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
+import aiohttp
+import requests # switched to aiohttp for async requests
 
-# thank you to georgehawkins0 for this code, changed it to my style
+# thank you to georgehawkins0 for this code, changed it to fit my needs
 class Page:
     """A class to represent a page on openipf.org or openpowerlifting.org."""
     BASE_URLS = (
@@ -13,29 +14,29 @@ class Page:
     FIRST_DATA_ROW_INDEX = 1
     SUCCESS_STATUS_CODE = 200
 
-    def __init__(self, url: Optional[str] = None, username: Optional[str] = None, fetch: bool = True) -> None:
+    # remember to call data = await page.get_data() from an async function after creating the Page instance. Removed this from init to allow for async calling (__init__ cannot be async).
+    def __init__(self, url: Optional[str] = None, username: Optional[str] = None) -> None: 
         self.fetched = False
+        self._data = None
 
         if url:
-            self.url = url
+            self._url = url
         else:
             if not username:
                 raise ValueError('Either url or username must be provided')
-            self.url = f"https://www.openipf.org/u/{username}"
+            self._url = f"https://www.openipf.org/u/{username}"
         
         if not self.url_validator():
-            raise ValueError(f"Invalid url: {self.url}")
-        
-        if fetch:
-            self.fetch()
+            raise ValueError(f"Invalid url: {self._url}")
+
             
-    def fetch(self) -> None:
+    async def fetch(self) -> None:
         """Fetch the page data and store it"""
-        self.data = self.request()
+        self._data = await self.request()
         self.fetched = True
 
     @staticmethod
-    def extract_lift_attempts(cells):
+    def extract_lift_attempts(cells) -> List[float]:
         """
         Extract float values from lift attempt HTML elements.
         Ignores failures or non-numeric entries.
@@ -49,17 +50,20 @@ class Page:
                 continue
         return attempts
 
-    def request(self) -> List[Dict]:
+    async def request(self) -> List[Dict]:
         """Send request, parse HTML, return structured table data."""
-        response = requests.get(self.url)
-        if response.status_code != self.SUCCESS_STATUS_CODE:
-            raise ValueError(f"URL returned {response.status_code}: {self.url}")
+        async with aiohttp.ClientSession() as session: # like with open, but async-compatible
+            async with session.get(self._url) as response: # sends get requests non-blockingly
+                if response.status != self.SUCCESS_STATUS_CODE:
+                    raise ValueError(f"URL returned {response.status}: {self._url}") # raise - fucntion cannot continue
+                html = await response.text() 
         
-        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        soup = BeautifulSoup(html, 'html.parser')
 
         tables = soup.find_all("table")
         if len(tables) < 2:
-            raise ValueError(f"No data table found at URL: {self.url}")
+            raise ValueError(f"No data table found at URL: {self._url}")
         
         table = tables[self.FIRST_DATA_ROW_INDEX]
 
@@ -92,11 +96,15 @@ class Page:
     # learning note, when passing in a tuple, python iterates through each element
     def url_validator(self):
         """Check if URL begins with known valid base URLs."""
-        return self.url.startswith(self.BASE_URLS)
+        return self._url.startswith(self.BASE_URLS)
         
-    def get_data(self,refresh_data=False):
+    async def get_data(self, refresh_data: bool = False) -> List[Dict]:
         """Return the parsed data"""
         if refresh_data or not self.fetched:
-            self.fetch()
-        return self.data
+            await self.fetch()
+        return self._data
+    
+    def get_url(self) -> str:
+        """Return the parsed data"""
+        return self._url
     
