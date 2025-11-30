@@ -1,0 +1,17 @@
+understand code
+move backend to src
+create frontend, can host for free? azure resources?
+create chrome extension?
+clean up output
+
+asynchronously perform API requests for faster search for name in names:
+    Page(username=username_guess)   # --> blocking HTTP request
+This means:
+
+Each request waits for the previous one to finish
+
+Slow networks = very slow processing
+
+Single-threaded = bottle-neck
+Use asyncio and aiohttp
+

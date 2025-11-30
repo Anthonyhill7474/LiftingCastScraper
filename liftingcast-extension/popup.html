@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>LiftingCast → OPL</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>LiftingCast → OPL</h1>
+
+    <label>
+      LiftingCast roster URL:
+      <input id="meet-url" type="text" placeholder="https://liftingcast.com/meets/.../roster" />
+    </label>
+    <button id="run-btn">Generate</button>
+
+    <div id="status"></div>
+
+    <div id="controls" class="hidden">
+      <label>
+        Weight class:
+        <select id="weight-filter">
+          <option value="all">All</option>
+        </select>
+      </label>
+    </div>
+
+    <div id="results"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

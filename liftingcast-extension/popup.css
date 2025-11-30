@@ -1,0 +1,82 @@
+body {
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  margin: 10px;
+  min-width: 360px;
+}
+
+h1 {
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+}
+
+input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+button {
+  margin-top: 6px;
+}
+
+#status {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.hidden {
+  display: none;
+}
+
+.person {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 6px;
+  margin-top: 8px;
+}
+
+.person-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.person-name {
+  font-weight: 600;
+}
+
+.link {
+  font-size: 11px;
+  color: #1a73e8;
+}
+
+.meets {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.meets table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.meets th,
+.meets td {
+  border: 1px solid #ddd;
+  padding: 4px;
+  text-align: left;
+}
+
+.toggle-btn {
+  font-size: 11px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: #1a73e8;
+  padding: 0;
+}
