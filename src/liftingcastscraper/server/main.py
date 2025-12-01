@@ -1,4 +1,6 @@
 # src/liftingcastscraper/server/main.py
+
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any
 
@@ -6,23 +8,22 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from ..pipeline import build_people  # note the two dots: parent package
+from liftingcastscraper.pipeline import build_people
+
 
 app = FastAPI(title="LiftingCast → OpenPowerlifting API")
 
-# Allow your Chrome extension / website to call this API
+# Allow your Chrome extension or frontend to call the API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # later: lock this down
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
 class ReportRequest(BaseModel):
     meet_url: str
-
 
 class ReportResponse(BaseModel):
     meet_url: str

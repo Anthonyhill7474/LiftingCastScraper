@@ -20,6 +20,24 @@ This project is structured as a proper Python package under src/
 
 **Important**: LiftingCast is a React SPA; scraping requires a JS-capable browser (Selenium or Playwright).
 
+**Project Structure**
+LiftingCastScraper/
+│
+├── src/
+│   └── liftingcastscraper/
+│       ├── pipeline.py
+│       ├── scraper/
+│       ├── opl_ipf/
+│       ├── reports/
+│       ├── output/
+│       └── server/
+│           └── main.py   ← FastAPI server
+│
+├── requirements.txt
+├── pyproject.toml
+├── Dockerfile
+└── README.md
+
 
 ### Quick start
 
@@ -27,7 +45,7 @@ This project is structured as a proper Python package under src/
 1. Create and activate a virtual environment:
 
 
-# Create virtual environment
+# Create and activate virtual environment
 ```bash
 From project root:
 python3 -m venv .venv
@@ -41,16 +59,40 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 
-3. From the project root
+3. Ensure Python can see the src/ package
+export PYTHONPATH=src
 
+Running the Pipeline Locally 
+
+1. From project root:
 python -m liftingcastscraper.main
 
 # You can also edit main.py to change the meet URL you want to scrape.
 
 Output HTML reports will be written to:
 
-output/
+output/report_<slugified_meet_url>.html
 
+Running the FastAPI server locally
+
+1. From project root:
+uvicorn liftingcastscraper.server.main:app --reload --port 8000
+
+2.
+Test using curl (macOS version):
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"meet_url":"https://liftingcast.com/meets/<MEET>/roster"}' \
+  http://127.0.0.1:8000/api/report
+
+Docker (local test)
+1. From project root
+docker build -t liftingcast-backend .
+docker run -p 8000:8000 liftingcast-backend
+
+2.
+Test via:
+http://localhost:8000/healthz
 
 
 FYI:
