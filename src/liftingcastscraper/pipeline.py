@@ -4,16 +4,19 @@ from typing import List, Dict
 
 import aiohttp
 
-from .scraper.selenium_scraper import scrape_liftingcast_roster
-from .scraper.utils import clean_lifter_name
+# from .scraper.selenium_scraper import scrape_liftingcast_roster
+from .scraper.playwright_scraper import scrape_liftingcast_roster
+from .scraper.utils import clean_lifter_name, normalize_liftingcast_url
 from .opl_ipf.lookup import try_fetch_openipf
 
 
 async def build_people(meet_url: str) -> List[Dict]:
     """Return the `people` structure for a meet URL."""
 
+    meet_url = normalize_liftingcast_url(meet_url)
+    
     # 1. Scrape the roster synchronously via Selenium
-    roster = scrape_liftingcast_roster(meet_url)
+    roster = await scrape_liftingcast_roster(meet_url)
 
     names: List[str] = []
     urls: List[str] = []

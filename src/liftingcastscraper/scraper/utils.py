@@ -61,3 +61,29 @@ def clean_lifter_name(raw_label: str) -> str:
         _, name = raw_label.split(" - ", 1)
         return name.strip()
     return raw_label.strip()
+
+def normalize_liftingcast_url(url: str) -> str:
+    """
+    Normalize any LiftingCast meet URL so that it always ends with /roster
+
+    Examples:
+        https://liftingcast.com/meets/abc123/roster    -> same
+        https://liftingcast.com/meets/abc123/results   -> /roster
+        https://liftingcast.com/meets/abc123           -> /roster
+        https://liftingcast.com/meets/abc123/          -> /roster
+        https://liftingcast.com/meets/abc123/lifter/x  -> /roster
+
+    Requirements:
+        - Meet ID always follows `/meets/<id>`
+    """
+    url = url.strip()
+
+    # Extract the meet ID using a regex
+    match = re.search(r"/meets/([^/]+)", url)
+    if not match:
+        raise ValueError(f"Invalid LiftingCast meet URL: {url}")
+
+    meet_id = match.group(1)
+
+    # Build normalized roster URL
+    return f"https://liftingcast.com/meets/{meet_id}/roster"

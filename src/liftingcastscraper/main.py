@@ -9,7 +9,7 @@ import asyncio
 import logging
 
 from .pipeline import build_people
-from .scraper.utils import save_html_report, slugify
+from .scraper.utils import save_html_report, slugify, normalize_liftingcast_url
 from .reports.html_report import generate_html_report
 
 logger = logging.getLogger(__name__)
@@ -36,4 +36,5 @@ async def run_pipeline(meet_url: str) -> None:
 
 if __name__ == "__main__":
     example_url = "https://liftingcast.com/meets/mfnfcu3cri6q/roster"
+    example_url = normalize_liftingcast_url(example_url)
     asyncio.run(run_pipeline(example_url))

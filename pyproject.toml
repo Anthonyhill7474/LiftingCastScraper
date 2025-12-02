@@ -6,11 +6,14 @@ authors = [{name = "You"}]
 requires-python = ">=3.10"
 
 dependencies = [
-    "aiohttp",
-    "beautifulsoup4",
-    "jinja2",
-    "selenium",
-    "webdriver-manager",
+    "aiohttp>=3.8.0",
+    "beautifulsoup4>=4.12.0",
+    "jinja2>=3.1.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.6.0",
+    "requests>=2.31.0",
+    "playwright>=1.34.0",
 ]
 
 [tool.setuptools]
