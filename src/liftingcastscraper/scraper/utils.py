@@ -6,8 +6,8 @@ All small functions shared between scrapers live here.
 import logging
 import re #regular expressions
 import os # for direectory creation and file operatinos
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
+# from selenium.webdriver.common.by import By
+# from selenium.webdriver.support import expected_conditions as EC
 
 logger = logging.getLogger(__name__)
 
