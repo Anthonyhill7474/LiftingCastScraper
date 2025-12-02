@@ -1,29 +1,38 @@
-# Use an official lightweight Python runtime
+# ---- Base Python image ----
 FROM python:3.12-slim
 
-# Set work directory
-WORKDIR /app
-
-# System deps – you may need more later for Chrome/Selenium,
-# but this keeps it minimal for now.
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libxml2-dev \
-    libxslt1-dev \
+# ---- Install system dependencies required by Playwright ----
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget gnupg ca-certificates curl \
+    libnss3 libnspr4 \
+    libatk1.0-0 libatk-bridge2.0-0 \
+    libcups2 libdrm2 \
+    libxkbcommon0 libxcomposite1 libxdamage1 \
+    libxrandr2 libxext6 libxfixes3 \
+    libx11-6 libx11-xcb1 \
+    libpango-1.0-0 libcairo2 \
+    libasound2 libatspi2.0-0 \
+    libgbm1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# ---- App directory ----
+WORKDIR /app
+
+# ---- Install Python dependencies ----
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy your app code
+# ---- Install Playwright BROWSERS (Chromium only) ----
+RUN playwright install chromium --with-deps
+
+# ---- Copy application code ----
 COPY src ./src
 
-# Make sure Python can see src/
+# Ensure Python can import src package
 ENV PYTHONPATH=/app/src
 
-# Expose port (Render will use this)
+# ---- Expose FastAPI port ----
 EXPOSE 8000
 
-# Start FastAPI using uvicorn
+# ---- Start server ----
 CMD ["uvicorn", "liftingcastscraper.server.main:app", "--host", "0.0.0.0", "--port", "8000"]
