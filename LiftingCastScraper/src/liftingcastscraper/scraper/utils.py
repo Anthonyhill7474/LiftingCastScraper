@@ -6,6 +6,7 @@ All small functions shared between scrapers live here.
 import logging
 import re #regular expressions
 import os # for direectory creation and file operatinos
+import psutil  # for memory usage monitoring
 # from selenium.webdriver.common.by import By
 # from selenium.webdriver.support import expected_conditions as EC
 
@@ -87,3 +88,8 @@ def normalize_liftingcast_url(url: str) -> str:
 
     # Build normalized roster URL
     return f"https://liftingcast.com/meets/{meet_id}/roster"
+
+def log_mem(tag=""):
+    p = psutil.Process(os.getpid())
+    mem = p.memory_info().rss / (1024 * 1024)
+    print(f"[MEM] {tag}: {mem:.1f} MB")

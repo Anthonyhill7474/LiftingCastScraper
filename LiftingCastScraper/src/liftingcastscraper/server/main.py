@@ -1,6 +1,7 @@
 # src/liftingcastscraper/server/main.py
 
 import asyncio
+import psutil
 from datetime import datetime
 from typing import List, Dict, Any
 
@@ -51,3 +52,7 @@ async def create_report(body: ReportRequest):
 @app.get("/healthz")
 def health():
     return {"status": "ok"}
+
+@app.get("/debug/memory")
+def memory():
+    return {"rss_mb": psutil.Process().memory_info().rss / 1e6}

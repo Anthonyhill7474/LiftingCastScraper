@@ -6,17 +6,18 @@ import aiohttp
 
 # from .scraper.selenium_scraper import scrape_liftingcast_roster # Old selenium scraper
 from .scraper.playwright_scraper import scrape_liftingcast_roster
-from .scraper.utils import clean_lifter_name, normalize_liftingcast_url
+from .scraper.utils import clean_lifter_name, normalize_liftingcast_url, log_mem
 from .opl_ipf.lookup import try_fetch_openipf
 
 
 async def build_people(meet_url: str) -> List[Dict]:
     """Return the `people` structure for a meet URL."""
-
+    log_mem("Start pipeline")
     meet_url = normalize_liftingcast_url(meet_url)
     
     # 1. Scrape the roster synchronously via playwright
     roster = await scrape_liftingcast_roster(meet_url)
+    log_mem("After roster scrape")
 
     names: List[str] = []
     urls: List[str] = []
@@ -34,7 +35,7 @@ async def build_people(meet_url: str) -> List[Dict]:
 
         # 3. Run all OpenIPF lookups concurrently
         results = await asyncio.gather(*tasks)
-
+    log_mem("After OpenIPF lookups")
     # 4. Stitch everything back together in order
     people: List[Dict] = []
     for lifter_name, liftingcast_url, ipf_data in zip(names, urls, results):
@@ -56,5 +57,5 @@ async def build_people(meet_url: str) -> List[Dict]:
                     "opl_summary": None,
                 }
             )
-
+    log_mem("End pipeline")
     return people
