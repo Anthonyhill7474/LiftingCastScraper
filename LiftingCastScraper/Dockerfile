@@ -34,5 +34,5 @@ ENV PYTHONPATH=/app/src
 # ---- Expose FastAPI port ----
 EXPOSE 8000
 
-# ---- Start server ----
-CMD ["uvicorn", "liftingcastscraper.server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ---- Start FastAPI ----
+CMD ["sh", "-c", "uvicorn liftingcastscraper.server.main:app --host 0.0.0.0 --port $PORT"]
