@@ -21,22 +21,21 @@ This project is structured as a proper Python package under src/
 **Important**: LiftingCast is a React SPA; scraping requires a JS-capable browser (Selenium or Playwright).
 
 **Project Structure**
-LiftingCastScraper/
+LiftingCastProject/
 │
-├── src/
-│   └── liftingcastscraper/
-│       ├── pipeline.py
-│       ├── scraper/
-│       ├── opl_ipf/
-│       ├── reports/
-│       ├── output/
-│       └── server/
-│           └── main.py   ← FastAPI server
+├── LiftingCastScraper/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── pyproject.toml
+│   ├── src/
+│   │   └── liftingcastscraper/
+│   │       ├── main.py
+│   │       ├── pipeline.py
+│   │       ├── server/
+│   │       └── scraper/
+│   └── output/
 │
-├── requirements.txt
-├── pyproject.toml
-├── Dockerfile
-└── README.md
+└── lifting-extension/
 
 
 ### Quick start
@@ -47,7 +46,7 @@ LiftingCastScraper/
 
 # Create and activate virtual environment
 ```bash
-From project root:
+cd LiftingCastScraper:
 python3 -m venv .venv
 
 2. Activate venv - Every time you open a new terminal and want to work on the project:
@@ -59,10 +58,10 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 
-3. Ensure Python can see the src/ package
+3. Ensure Python can see src
 export PYTHONPATH=src
 
-Running the Pipeline Locally 
+Running the Pipeline Locally:
 
 1. From project root:
 python -m liftingcastscraper.main
