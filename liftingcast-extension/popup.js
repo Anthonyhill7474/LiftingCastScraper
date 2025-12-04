@@ -152,15 +152,21 @@ function loadStateFromStorage() {
 
 /* ---------- helpers for meet data ---------- */
 
-function getWeightClass(meet) {
+const validClasses = [...FEMALE_CLASSES, ...MALE_CLASSES];
+
   const raw =
     meet.Class ||
     meet.WeightClassKg ||
     meet.WeightClass ||
     null;
+
   if (!raw) return null;
-  return String(raw).trim();
-}
+
+  const cls = String(raw).trim();
+
+  if (!validClasses.includes(cls)) return null; 
+
+  return cls;
 
 function getBodyweight(meet) {
   const w =
@@ -181,14 +187,8 @@ function getMeetName(meet) {
   );
 }
 
-function getDots(meet) {
-  return (
-    meet.Dots ||       // OPL column
-    meet.DOTS ||
-    meet.GLP ||        // legacy name in some exports
-    meet["GLP"] ||
-    ""
-  );
+function getGLP(meet) {
+  return meet.GLP || meet["GLP"] || "";
 }
 
 function guessGenderFromClass(cls) {
@@ -354,16 +354,16 @@ function buildLatestSummary(meets) {
   const cls = getWeightClass(latest) || "";
   const bw = getBodyweight(latest) || "";
   const total = latest.Total || "";
-  const dots = getDots(latest) || "";
+  const glp = getGLP(latest) || "";
 
   const div = document.createElement("div");
   div.className = "latest-meet";
   div.textContent =
     `Latest: ${date} — ${meetName} ` +
-    (cls ? `| Class ${cls}` : "") +
-    (bw ? ` | ${bw} kg` : "") +
-    (total ? ` | Total ${total}` : "") +
-    (dots ? ` | Dots ${dots}` : "");
+    (cls ? `| Class: ${cls}` : "") +
+    (bw ? ` | BW: ${bw} kg` : "") +
+    (total ? ` | Total: ${total}` : "") +
+    (glp ? ` | GLP: ${glp}` : "");
   return div;
 }
 
@@ -451,7 +451,7 @@ function buildMeetsTable(meets) {
       <th>Class</th>
       <th>Weight</th>
       <th>Total</th>
-      <th>Dots</th>
+      <th>GLP</th>
       <th>Squat</th>
       <th>Bench</th>
       <th>Deadlift</th>
@@ -468,7 +468,7 @@ function buildMeetsTable(meets) {
     const cls = getWeightClass(m) || "";
     const bw = getBodyweight(m) || "";
     const total = m.Total || "";
-    const dots = getDots(m) || "";
+    const glp = getGLP(m) || "";
 
     const squat = m.Best3SquatKg ?? m.Squat ?? "";
     const bench = m.Best3BenchKg ?? m.Bench ?? "";
@@ -480,7 +480,7 @@ function buildMeetsTable(meets) {
       <td>${cls}</td>
       <td>${bw}</td>
       <td>${total}</td>
-      <td>${dots}</td>
+      <td>${glp}</td>
       <td>${formatLiftValue(squat)}</td>
       <td>${formatLiftValue(bench)}</td>
       <td>${formatLiftValue(deadlift)}</td>
