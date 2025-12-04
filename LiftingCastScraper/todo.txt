@@ -1,0 +1,12 @@
+caching meet searchs
+
+3. Limit concurrency
+
+Add async timeout to your pipeline
+
+decoupling Selenium from FastAPI
+
+loading animation: add progressive updates showing where loading is up to
+upgrade chrome extension
+
+improved error handlung
