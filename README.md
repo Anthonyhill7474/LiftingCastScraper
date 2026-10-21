@@ -226,6 +226,28 @@ ORDER BY create_date DESC NULLS LAST;
 
 The competition date is parsed according to its `date_format` for display and sorting; the source date text remains unchanged in PostgreSQL.
 
+## Inspecting Individual Competition Data
+
+The backend reads individual competition data from CouchDB using its read-only database URL. The default base URL is `https://couchdb.liftingcast.com/`; override it in User Secrets if needed:
+
+```bash
+cd backend/src/LiftingCastTracker.Controllers
+dotnet user-secrets set "LiftingCast:CouchDbBaseUrl" "https://couchdb.liftingcast.com/"
+```
+
+The following Development-only endpoints make requests only when called:
+
+```bash
+curl -k https://localhost:7251/api/development/competitions/mnk13ga524h1/snapshot
+curl -k https://localhost:7251/api/development/competitions/mnk13ga524h1/changes/check
+```
+
+The snapshot response contains the competition ID, CouchDB `total_rows`, `update_seq` when available, up to three document IDs, each sample document's first ten top-level property names and JSON types, and the retrieval time. It does not return document values. The endpoint requests only three rows to keep the inspection bounded.
+
+The changes diagnostic makes one normal feed request with `since=now` and `limit=1`. Its response includes the upstream HTTP status, whether the response has a valid changes-feed shape, the result count when present, and `last_seq` when present. An upstream HTTP error is reported in the JSON response with `isValidChangesFeed: false`; network errors and timeouts return gateway errors.
+
+These endpoints do not run automatically, write to CouchDB, or persist competition documents. The actual document structure and `_changes` accessibility have not yet been verified; the snapshot reports structure only, and the diagnostic does not establish incremental synchronization behavior.
+
 ## Development Workflow
 
 1. **Backend Changes**: Modify code in `backend/src/` and rebuild with `dotnet build`

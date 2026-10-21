@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\LiftingCastTracker.Services\LiftingCastTracker.Services.csproj" />
+    <ProjectReference Include="..\..\src\LiftingCastTracker.Repositories\LiftingCastTracker.Repositories.csproj" />
   </ItemGroup>
 
 </Project>

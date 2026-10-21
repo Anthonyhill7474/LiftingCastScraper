@@ -199,7 +199,11 @@ Do not implement automatic directory polling or meet data synchronization.
 
 Competition directory JSON is imported manually from a configured local fixture file. The import endpoint is registered only in the Development environment and is not scheduled. Services parses records and decides whether each valid competition is inserted, updated, or unchanged; Repositories persists those changes using the existing `competitions` table.
 
-The original competition date and date format remain stored as source metadata. A parsed date is derived for API responses and frontend sorting, not persisted. Missing or unparseable dates do not prevent importing a record with a valid ID. No unverified LiftingCast endpoint is called.
+The original competition date and date format remain stored as source metadata. A parsed date is derived for API responses and frontend sorting, not persisted. Missing or unparseable dates do not prevent importing a record with a valid ID. The directory import does not call any LiftingCast endpoint.
+
+## Competition Data Inspection Milestone
+
+The Repositories project has a read-only CouchDB HTTP client configured by `LiftingCast:CouchDbBaseUrl`. Development-only snapshot and changes diagnostic endpoints make one request only when manually called. Snapshot parsing returns document counts, update sequence, and bounded document-shape samples without returning document values. No competition documents are persisted, and `_changes` support remains unverified.
 
 ## Future Synchronization
 
