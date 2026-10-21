@@ -120,6 +120,18 @@ body {
   margin-top: 0.5rem;
 }
 
+.badge.upcoming {
+  background-color: #2e7d32;
+}
+
+.badge.past {
+  background-color: #757575;
+}
+
+.badge.unavailable {
+  background-color: #9e9e9e;
+}
+
 @media (max-width: 768px) {
   .header {
     padding: 1.5rem 1rem;

@@ -105,14 +105,14 @@ This command will:
 
 ```bash
 cd backend/src/LiftingCastTracker.Controllers
-dotnet run
+dotnet run --launch-profile https
 ```
 
-The API will be available at `https://localhost:7194` (or `https://localhost:5001` if using HTTP).
+The API will be available at `https://localhost:7251` or `http://localhost:5262`.
 
 Test the API:
-- Health check: `GET https://localhost:7194/api/health`
-- Competitions list: `GET https://localhost:7194/api/competitions`
+- Health check: `GET https://localhost:7251/api/health`
+- Competitions list: `GET https://localhost:7251/api/competitions`
 
 ## Frontend Setup
 
@@ -125,16 +125,13 @@ npm install
 
 ### Configuration
 
-The frontend expects the backend API URL via the `VITE_API_BASE_URL` environment variable.
+The frontend defaults to the local backend at `https://localhost:7251`. To use a different API URL, create `frontend/.env.local` with:
 
-Copy `.env.example` to `.env.local` and update if needed:
-
-```bash
-cd frontend
-cp .env.example .env.local
+```env
+VITE_API_BASE_URL=https://localhost:7251
 ```
 
-Default: `https://localhost:7194`
+Restart the Vite dev server after changing this value.
 
 ### Run Development Server
 
@@ -199,6 +196,35 @@ npm run lint
   }
 ]
 ```
+
+## Importing Competition Directory JSON
+
+No LiftingCast directory URL is assumed. The backend includes a local example at `backend/src/LiftingCastTracker.Controllers/competition-directory.json`, and the import reads that file by default.
+
+To import a directory JSON file you already have, set its absolute path with User Secrets from the Controllers project:
+
+```bash
+cd backend/src/LiftingCastTracker.Controllers
+dotnet user-secrets set "CompetitionImport:FixturePath" "/absolute/path/to/competition-directory.json"
+```
+
+Start the backend with the Development environment (the standard `dotnet run` launch profile does this), then manually trigger the import:
+
+```bash
+curl -k -X POST https://localhost:7251/api/development/competitions/import
+```
+
+The response reports `inserted`, `updated`, `unchanged`, and `invalid` record counts. The endpoint is only registered in Development. Invalid records include entries with a missing or blank `_id`, duplicate IDs, or incorrectly typed metadata fields. Missing optional values are accepted; empty names and dates are allowed, and unparseable dates remain stored as source text.
+
+To verify the imported data in DBeaver, connect to the `liftingcast` database and run:
+
+```sql
+SELECT id, name, date, date_format, create_date, show_on_home_page
+FROM competitions
+ORDER BY create_date DESC NULLS LAST;
+```
+
+The competition date is parsed according to its `date_format` for display and sorting; the source date text remains unchanged in PostgreSQL.
 
 ## Development Workflow
 

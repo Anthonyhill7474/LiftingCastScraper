@@ -25,4 +25,28 @@ public class CompetitionRepository : ICompetitionRepository
     {
         return await _context.Competitions.FirstOrDefaultAsync(c => c.Id == id);
     }
+
+    public async Task<List<Competition>> GetByIdsAsync(
+        IReadOnlyCollection<string> ids,
+        CancellationToken cancellationToken = default)
+    {
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        return await _context.Competitions
+            .Where(competition => ids.Contains(competition.Id))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task SaveImportedAsync(
+        IReadOnlyCollection<Competition> inserted,
+        IReadOnlyCollection<Competition> updated,
+        CancellationToken cancellationToken = default)
+    {
+        _context.Competitions.AddRange(inserted);
+        _context.Competitions.UpdateRange(updated);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
 }

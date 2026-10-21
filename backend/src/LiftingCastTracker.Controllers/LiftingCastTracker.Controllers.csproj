@@ -20,4 +20,8 @@
     <ProjectReference Include="..\LiftingCastTracker.Repositories\LiftingCastTracker.Repositories.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="competition-directory.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

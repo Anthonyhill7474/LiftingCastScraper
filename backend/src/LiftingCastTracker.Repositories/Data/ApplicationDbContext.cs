@@ -41,6 +41,8 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.ShowOnHomePage)
                 .HasColumnName("show_on_home_page")
                 .HasDefaultValue(false);
+
+            entity.Ignore(e => e.ParsedDate);
         });
     }
 }

@@ -8,7 +8,7 @@ Its eventual purpose is to discover competitions, synchronize competition data, 
 
 The application is being developed incrementally.
 
-The current milestone is a working full-stack foundation, not real-time competition tracking.
+The current milestone includes manually importing competition directory JSON and displaying stored competition metadata. It is not real-time competition tracking.
 
 ## Technology
 
@@ -69,6 +69,7 @@ Responsibilities:
 Initial endpoints:
 - `GET /api/health`
 - `GET /api/competitions`
+- Development-only `POST /api/development/competitions/import`
 
 ### Services
 
@@ -77,6 +78,7 @@ The application logic layer.
 Responsibilities:
 - Competition model
 - Business logic
+- Competition directory JSON parsing and import decisions
 - Repository interfaces
 - Future external data source interfaces
 - Date parsing where needed
@@ -191,20 +193,25 @@ _all_docs?conflicts=true&update_seq=true&include_docs=true
 
 CouchDB supports a `_changes` mechanism generally, but access and behaviour on LiftingCast must be verified.
 
-Do not implement data synchronization during the initial scaffolding milestone.
+Do not implement automatic directory polling or meet data synchronization.
+
+## Competition Discovery Milestone
+
+Competition directory JSON is imported manually from a configured local fixture file. The import endpoint is registered only in the Development environment and is not scheduled. Services parses records and decides whether each valid competition is inserted, updated, or unchanged; Repositories persists those changes using the existing `competitions` table.
+
+The original competition date and date format remain stored as source metadata. A parsed date is derived for API responses and frontend sorting, not persisted. Missing or unparseable dates do not prevent importing a record with a valid ID. No unverified LiftingCast endpoint is called.
 
 ## Future Synchronization
 
 Potential future work:
 
-1. Discover competitions from the directory.
-2. Persist new or updated competition metadata.
-3. Read individual competition documents.
-4. Investigate incremental CouchDB changes.
-5. Store synchronization checkpoints.
-6. Detect active competitions.
-7. Poll active competitions at a configurable frequency.
-8. Expose synchronized information through our own API.
+1. Automate competition directory discovery and metadata refresh.
+2. Read individual competition documents.
+3. Investigate incremental CouchDB changes.
+4. Store synchronization checkpoints.
+5. Detect active competitions.
+6. Poll active competitions at a configurable frequency.
+7. Expose synchronized information through our own API.
 
 An initial target is up to 20 active meets at five-second intervals, subject to owner approval and performance testing.
 

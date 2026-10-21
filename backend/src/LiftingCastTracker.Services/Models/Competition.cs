@@ -1,3 +1,5 @@
+using LiftingCastTracker.Services.Parsing;
+
 namespace LiftingCastTracker.Services.Models;
 
 public class Competition
@@ -8,4 +10,5 @@ public class Competition
     public string? DateFormat { get; set; }
     public DateTime? CreateDate { get; set; }
     public bool ShowOnHomePage { get; set; }
+    public DateOnly? ParsedDate => CompetitionDateParser.Parse(Date, DateFormat);
 }

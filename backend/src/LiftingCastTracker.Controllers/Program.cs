@@ -1,7 +1,9 @@
 using LiftingCastTracker.Repositories.Data;
 using LiftingCastTracker.Repositories.Implementations;
+using LiftingCastTracker.Services.Import;
 using LiftingCastTracker.Services.Repositories;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +16,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 builder.Services.AddScoped<ICompetitionRepository, CompetitionRepository>();
+builder.Services.AddScoped<CompetitionImportService>();
 
 if (builder.Environment.IsDevelopment())
 {
@@ -35,6 +38,34 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
     app.UseCors("LocalVite");
+
+    app.MapPost(
+        "/api/development/competitions/import",
+        async (
+            IConfiguration configuration,
+            IWebHostEnvironment environment,
+            CompetitionImportService importService,
+            CancellationToken cancellationToken) =>
+        {
+            var fixturePath = configuration["CompetitionImport:FixturePath"] ?? "competition-directory.json";
+            var fullFixturePath = Path.GetFullPath(fixturePath, environment.ContentRootPath);
+            if (!File.Exists(fullFixturePath))
+            {
+                return Results.NotFound(new { error = $"Competition directory JSON not found: {fullFixturePath}" });
+            }
+
+            var json = await File.ReadAllTextAsync(fullFixturePath, cancellationToken);
+            try
+            {
+                var summary = await importService.ImportAsync(json, cancellationToken);
+                return Results.Ok(summary);
+            }
+            catch (JsonException exception)
+            {
+                return Results.BadRequest(new { error = exception.Message });
+            }
+        })
+        .WithName("ImportCompetitions");
 }
 
 app.UseHttpsRedirection();

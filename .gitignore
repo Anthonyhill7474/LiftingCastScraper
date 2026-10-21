@@ -35,3 +35,6 @@ publish/
 
 # Temporary files
 *.tmp
+
+# Environment variables
+.env
