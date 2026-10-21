@@ -68,7 +68,10 @@ if (app.Environment.IsDevelopment())
         .WithName("ImportCompetitions");
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.MapGet("/api/health", () => new { status = "healthy" })
     .WithName("GetHealth")

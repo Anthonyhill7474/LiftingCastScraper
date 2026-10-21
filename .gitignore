@@ -38,3 +38,6 @@ publish/
 
 # Environment variables
 .env
+
+# Miscellaneous
+local-data/
