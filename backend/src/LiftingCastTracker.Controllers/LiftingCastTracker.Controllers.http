@@ -1,0 +1,6 @@
+@LiftingCastTracker.Controllers_HostAddress = http://localhost:5262
+
+GET {{LiftingCastTracker.Controllers_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

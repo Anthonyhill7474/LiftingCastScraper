@@ -1,0 +1,37 @@
+# .NET
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.user
+*.suo
+.vs/
+.vscode/
+*.log
+
+# Entity Framework
+*.sql
+
+# User secrets
+appsettings.Development.json
+
+# IDE
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Node / Frontend
+node_modules/
+dist/
+.env.local
+.env.*.local
+*.tsbuildinfo
+
+# Build outputs
+out/
+publish/
+
+# Temporary files
+*.tmp
