@@ -70,6 +70,7 @@ Initial endpoints:
 - `GET /api/health`
 - `GET /api/competitions`
 - `GET /api/competitions/{id}/documents`
+- `GET /api/competitions/{id}/details`
 - Development-only `POST /api/development/competitions/import`
 - Development-only `POST /api/development/competitions/{id}/sync`
 
@@ -149,6 +150,7 @@ Initial requirements:
 - Fetch competitions from the local backend
 - Show loading, error and empty states
 - Display available competition metadata
+- Open locally synchronized competition details with lifters grouped by flight/session and attempts 1–3
 
 Use `VITE_API_BASE_URL` for backend configuration.
 
@@ -245,6 +247,8 @@ The Repositories project has a read-only CouchDB HTTP client configured by `Lift
 The Development-only `POST /api/development/competitions/{id}/sync` endpoint verifies the competition exists in the local directory. If no sync state exists, it fetches a full `_all_docs` snapshot and saves sanitized documents with the snapshot sequence. Later calls process bounded `_changes` batches, applying additions, updates and deletions idempotently. Every successful batch and its `last_seq` checkpoint commit in one PostgreSQL transaction. A per-competition in-process lock prevents overlapping calls in one application instance.
 
 `GET /api/competitions/{id}/documents` reads only the local PostgreSQL state and returns a bounded summary of document IDs, revisions, and sanitized top-level field names/types. It does not contact CouchDB. No raw responses or complete history arrays are stored.
+
+`GET /api/competitions/{id}/details` also reads only PostgreSQL. It maps observed profile, attempt, division-configuration and platform-runtime document shapes into explicit DTOs; attempts are joined to lifters by `lifterId`. It returns only requested display fields and never exposes raw documents, dates of birth, payment/contact data, or full change histories. Missing values remain absent/null, and totals, placings and coefficient calculations are not included. The React page fetches details when a competition is opened and does not poll.
 
 ## Future Synchronization
 

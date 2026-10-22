@@ -194,6 +194,24 @@ npm run lint
 ]
 ```
 
+### Get Competition Details
+
+Open a competition from the directory to view its locally synchronized lifters and attempts. The details endpoint reads PostgreSQL only; it never contacts LiftingCast.
+
+```bash
+curl -k https://localhost:7251/api/competitions/COMPETITION_ID/details
+```
+
+The response includes competition metadata, the last synchronization time, platform runtime summaries, and lifters joined to attempts by `lifterId`. Lifter details include available divisions, flight/session/lot, bodyweight, and attempt slots. Missing source fields remain null or absent; totals, placings, and scores are not calculated. Dates of birth, payment/contact data, and document change histories are not returned.
+
+An unknown competition returns HTTP 404. A directory competition that has not been synchronized returns HTTP 409 with a not-synchronized message. In Development, manually synchronize it first:
+
+```bash
+curl -k -X POST https://localhost:7251/api/development/competitions/COMPETITION_ID/sync
+```
+
+Then reload the details page. No frontend polling is performed. Bodyweight is included in the synchronization allowlist for new or updated documents; documents already stored before that field was allowed may not contain bodyweight until CouchDB sends an update for the document.
+
 ## Importing Competition Directory JSON
 
 No LiftingCast directory URL is assumed. The backend includes a local example at `backend/src/LiftingCastTracker.Controllers/competition-directory.json`, and the import reads that file by default.

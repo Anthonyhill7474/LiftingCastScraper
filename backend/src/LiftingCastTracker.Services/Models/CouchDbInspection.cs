@@ -116,3 +116,43 @@ public sealed record SynchronizedDocumentsPage(
     int Offset,
     int Limit,
     IReadOnlyList<SynchronizedDocumentSummary> Documents);
+
+public sealed record CompetitionDetailsDto(
+    string CompetitionId,
+    string Name,
+    string? Date,
+    string? DateFormat,
+    DateTimeOffset? LastSyncedAtUtc,
+    IReadOnlyList<CompetitionPlatformDto> Platforms,
+    IReadOnlyList<CompetitionLifterDto> Lifters);
+
+public sealed record CompetitionPlatformDto(
+    string DocumentId,
+    string? Name,
+    string? ClockState,
+    JsonElement? ClockTimerLength,
+    string? CurrentAttemptId);
+
+public sealed record CompetitionLifterDto(
+    string DocumentId,
+    string? Name,
+    IReadOnlyList<CompetitionDivisionDto> Divisions,
+    string? Flight,
+    JsonElement? Session,
+    JsonElement? Lot,
+    JsonElement? BodyWeight,
+    IReadOnlyList<CompetitionAttemptDto> Attempts);
+
+public sealed record CompetitionDivisionDto(
+    string? DivisionId,
+    string? Name,
+    string? WeightClassId,
+    string? WeightClassName,
+    string? RawOrEquipped);
+
+public sealed record CompetitionAttemptDto(
+    string DocumentId,
+    string? LiftName,
+    JsonElement? AttemptNumber,
+    JsonElement? Weight,
+    JsonElement? Result);

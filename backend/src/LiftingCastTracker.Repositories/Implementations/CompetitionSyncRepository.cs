@@ -152,6 +152,22 @@ public sealed class CompetitionSyncRepository(ApplicationDbContext context)
         return (totalDocuments, documents);
     }
 
+    public async Task<(CompetitionSyncState? State, IReadOnlyList<CompetitionDocument> Documents)> GetDetailsDataAsync(
+        string competitionId,
+        CancellationToken cancellationToken = default)
+    {
+        var state = await context.CompetitionSyncStates
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.CompetitionId == competitionId, cancellationToken);
+        var documents = await context.CompetitionDocuments
+            .AsNoTracking()
+            .Where(document => document.CompetitionId == competitionId)
+            .OrderBy(document => document.DocumentId)
+            .ToListAsync(cancellationToken);
+
+        return (state, documents);
+    }
+
     private async Task SaveCheckpointAsync(
         string competitionId,
         string lastSequence,

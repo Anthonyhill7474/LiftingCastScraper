@@ -27,4 +27,8 @@ public interface ICompetitionSyncRepository
         int offset,
         int limit,
         CancellationToken cancellationToken = default);
+
+    Task<(CompetitionSyncState? State, IReadOnlyList<CompetitionDocument> Documents)> GetDetailsDataAsync(
+        string competitionId,
+        CancellationToken cancellationToken = default);
 }

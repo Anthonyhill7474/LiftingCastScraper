@@ -49,6 +49,7 @@ public class CompetitionSyncTests
                         "_id": "lifter:1",
                         "_rev": "1-lifter",
                         "name": "Lifter Name",
+                        "bodyWeight": 82.5,
                         "birthDate": "private-birth-date",
                         "stripePaymentIntent": "private-payment-id",
                         "divisions": [
@@ -79,6 +80,7 @@ public class CompetitionSyncTests
         Assert.DoesNotContain("private-history-value", storedData);
         Assert.Contains("decisions", storedData);
         Assert.Contains("divisionId", storedData);
+        Assert.Contains("bodyWeight", storedData);
     }
 
     [Fact]
@@ -517,6 +519,15 @@ public class CompetitionSyncTests
                 .ToArray();
             return Task.FromResult((documents.Length, (IReadOnlyList<CompetitionDocument>)documents.Skip(offset).Take(limit).ToArray()));
         }
+
+        public Task<(CompetitionSyncState? State, IReadOnlyList<CompetitionDocument> Documents)> GetDetailsDataAsync(
+            string competitionId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult((
+                State?.CompetitionId == competitionId ? State : null,
+                (IReadOnlyList<CompetitionDocument>)Documents.Values
+                    .Where(document => document.CompetitionId == competitionId)
+                    .ToArray()));
 
         private void Commit(
             string competitionId,

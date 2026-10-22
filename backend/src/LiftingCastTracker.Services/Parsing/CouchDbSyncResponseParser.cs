@@ -13,6 +13,7 @@ public static class CouchDbSyncResponseParser
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "barAndCollarsWeight",
+        "bodyWeight",
         "clockState",
         "clockTimerLength",
         "currentAttemptId",
