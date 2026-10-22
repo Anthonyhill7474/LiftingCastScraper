@@ -44,6 +44,38 @@ interface Platform {
   currentAttemptId?: string | null
 }
 
+interface PlatformDashboard {
+  competitionId: string
+  lastSyncedAtUtc: string
+  platforms: DashboardPlatform[]
+}
+
+interface DashboardPlatform {
+  platformId: string
+  name?: string | null
+  clockState?: JsonValue
+  clockTimerLength?: JsonValue
+  currentAttemptId?: string | null
+  currentAttempt?: PlatformCurrentAttempt | null
+}
+
+interface PlatformCurrentAttempt {
+  attemptId: string
+  liftName?: string | null
+  attemptNumber?: JsonValue
+  weight?: JsonValue
+  lifter?: PlatformLifter | null
+}
+
+interface PlatformLifter {
+  lifterId: string
+  name?: string | null
+  flight?: string | null
+  session?: JsonValue
+  lot?: JsonValue
+  bodyWeight?: JsonValue
+}
+
 interface Division {
   divisionId?: string | null
   name?: string | null
@@ -165,8 +197,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [selectedCompetition, setSelectedCompetition] = useState<Competition | null>(null)
   const [details, setDetails] = useState<CompetitionDetails | null>(null)
+  const [platformDashboard, setPlatformDashboard] = useState<PlatformDashboard | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
+  const [platformDashboardLoading, setPlatformDashboardLoading] = useState(false)
   const [detailsError, setDetailsError] = useState<string | null>(null)
+  const [platformDashboardError, setPlatformDashboardError] = useState<string | null>(null)
   const [notSynchronized, setNotSynchronized] = useState(false)
   const [backendDevelopment, setBackendDevelopment] = useState(false)
   const [refreshing, setRefreshing] = useState<'changes' | 'full' | null>(null)
@@ -262,6 +297,39 @@ export default function App() {
     return () => controller.abort()
   }, [selectedCompetition, detailsReloadKey])
 
+  useEffect(() => {
+    if (!selectedCompetition) {
+      return
+    }
+
+    const controller = new AbortController()
+    const fetchPlatformDashboard = async () => {
+      setPlatformDashboard(null)
+      setPlatformDashboardError(null)
+      setPlatformDashboardLoading(true)
+      try {
+        const apiBase = import.meta.env.VITE_API_BASE_URL || 'https://localhost:7251'
+        const response = await fetch(
+          `${apiBase}/api/competitions/${encodeURIComponent(selectedCompetition.id)}/platforms`,
+          { signal: controller.signal },
+        )
+        if (response.status === 409) return
+        if (!response.ok) throw new Error(`API error: ${response.status}`)
+        setPlatformDashboard(await response.json())
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return
+        setPlatformDashboardError(
+          err instanceof Error ? err.message : 'Failed to fetch platform state',
+        )
+      } finally {
+        if (!controller.signal.aborted) setPlatformDashboardLoading(false)
+      }
+    }
+
+    fetchPlatformDashboard()
+    return () => controller.abort()
+  }, [selectedCompetition, detailsReloadKey])
+
   const refreshCompetition = async (fullRefresh: boolean) => {
     if (!selectedCompetition || refreshing) return
     if (fullRefresh && !window.confirm(
@@ -308,6 +376,7 @@ export default function App() {
               onClick={() => {
                 setDetails(null)
                 setSelectedCompetition(null)
+                setPlatformDashboard(null)
                 setRefreshSummary(null)
                 setRefreshError(null)
               }}
@@ -376,17 +445,75 @@ export default function App() {
                 <span>Run a manual Development synchronization for this competition, then reload this page.</span>
               </div>
             )}
-            {details && details.platforms.length > 0 && (
-              <div className="platform-list" aria-label="Platform status">
-                {details.platforms.map((platform) => (
-                  <div className="platform-card" key={platform.documentId}>
-                    <strong>{platform.name || 'Platform'}</strong>
-                    <span>Clock: {platform.clockState || '—'}</span>
-                    <span>Current attempt: {platform.currentAttemptId || '—'}</span>
-                  </div>
-                ))}
+            <section className="platform-dashboard" aria-labelledby="platform-dashboard-heading">
+              <div className="platform-dashboard-heading">
+                <div>
+                  <h3 id="platform-dashboard-heading">Platform dashboard</h3>
+                  <p>Latest synchronized platform state; clock values are shown as supplied.</p>
+                </div>
+                {platformDashboard && (
+                  <p className="sync-time">
+                    Platform data last synchronized: {formatSyncedAt(platformDashboard.lastSyncedAtUtc)}
+                  </p>
+                )}
               </div>
-            )}
+              {platformDashboardLoading && <div className="state">Loading platform state...</div>}
+              {platformDashboardError && (
+                <div className="state error">Platform dashboard error: {platformDashboardError}</div>
+              )}
+              {platformDashboard && platformDashboard.platforms.length === 0 && (
+                <div className="state empty">No platform runtime documents were found in the synchronized data.</div>
+              )}
+              {platformDashboard && platformDashboard.platforms.length > 0 && (
+                <div className="platform-grid">
+                  {platformDashboard.platforms.map((platform) => (
+                    <article className="platform-card" key={platform.platformId}>
+                      <div className="platform-card-heading">
+                        <h4>{platform.name || 'Unnamed platform'}</h4>
+                        <span className="platform-id">ID: {platform.platformId}</span>
+                      </div>
+                      <div className="platform-runtime-values">
+                        <span>
+                          <strong>Clock state</strong>
+                          <span>{formatValue(platform.clockState)}</span>
+                        </span>
+                        <span>
+                          <strong>Clock timer length (raw)</strong>
+                          <span>{formatValue(platform.clockTimerLength)}</span>
+                        </span>
+                      </div>
+                      <div className="current-attempt">
+                        <h5>Current attempt</h5>
+                        {platform.currentAttempt ? (
+                          <>
+                            <strong>
+                              {platform.currentAttempt.liftName || 'Lift unknown'}
+                              {platform.currentAttempt.attemptNumber !== undefined
+                                && platform.currentAttempt.attemptNumber !== null
+                                ? ` · Attempt ${formatValue(platform.currentAttempt.attemptNumber)}`
+                                : ''}
+                            </strong>
+                            <span>Weight (source): {formatValue(platform.currentAttempt.weight)}</span>
+                            <span>
+                              Lifter: {platform.currentAttempt.lifter?.name || 'Unavailable in synchronized records'}
+                            </span>
+                            {platform.currentAttempt.lifter?.flight && (
+                              <span>Flight {platform.currentAttempt.lifter.flight}</span>
+                            )}
+                          </>
+                        ) : platform.currentAttemptId ? (
+                          <span>
+                            Attempt reference {platform.currentAttemptId} is not present as a stored attempt.
+                          </span>
+                        ) : (
+                          <span>No current attempt is reported (idle or unknown).</span>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
             {details && details.lifters.length === 0 && (
               <div className="state empty">No lifter records were found in the synchronized data.</div>
             )}
@@ -491,6 +618,7 @@ export default function App() {
                         className="card card-button"
                         onClick={() => {
                           setDetails(null)
+                          setPlatformDashboard(null)
                           setRefreshSummary(null)
                           setRefreshError(null)
                           setSelectedCompetition(competition)

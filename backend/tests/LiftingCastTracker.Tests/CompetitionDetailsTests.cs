@@ -169,6 +169,160 @@ public sealed class CompetitionDetailsTests
         Assert.DoesNotContain("private-history", response);
     }
 
+    [Fact]
+    public void PlatformDashboardFindsMultiplePlatformsAndJoinsCurrentAttemptToLifter()
+    {
+        var documents = new[]
+        {
+            CreateDocument(
+                "lifter:1",
+                """
+                {
+                  "name": "Lifter One",
+                  "flight": "A",
+                  "session": 1,
+                  "lot": 12,
+                  "bodyWeight": 82.5,
+                  "birthDate": "private-birth-date"
+                }
+                """),
+            CreateDocument(
+                "attempt:1",
+                """
+                {
+                  "lifterId": "lifter:1",
+                  "liftName": "Squat",
+                  "attemptNumber": "2",
+                  "weight": 120,
+                  "result": "good",
+                  "changes": [{ "value": "private-history" }]
+                }
+                """),
+            CreateDocument(
+                "platform:1",
+                """
+                {
+                  "name": "Platform A",
+                  "clockState": "running",
+                  "clockTimerLength": 60,
+                  "currentAttemptId": "attempt:1"
+                }
+                """),
+            CreateDocument(
+                "platform:2",
+                """{"name":"Platform B","currentAttemptId":null}"""),
+            CreateDocument(
+                "platform-search:1",
+                """{"name":"Search record","platformId":"platform:1","search":"platform"}""")
+        };
+        var syncedAt = DateTimeOffset.Parse("2026-10-22T01:00:00Z");
+
+        var dashboard = CompetitionDetailsMapper.CreatePlatformDashboard("meet-1", documents, syncedAt);
+
+        Assert.Equal(syncedAt, dashboard.LastSyncedAtUtc);
+        Assert.Equal(new[] { "platform:1", "platform:2" }, dashboard.Platforms.Select(platform => platform.PlatformId));
+        var platform = dashboard.Platforms[0];
+        Assert.Equal("Platform A", platform.Name);
+        Assert.Equal("running", platform.ClockState?.GetString());
+        Assert.Equal("60", platform.ClockTimerLength?.GetRawText());
+        var currentAttempt = Assert.IsType<CompetitionPlatformCurrentAttemptDto>(platform.CurrentAttempt);
+        Assert.Equal("attempt:1", currentAttempt.AttemptId);
+        Assert.Equal("Squat", currentAttempt.LiftName);
+        Assert.Equal("2", currentAttempt.AttemptNumber?.GetString());
+        Assert.Equal("120", currentAttempt.Weight?.GetRawText());
+        Assert.Equal("Lifter One", currentAttempt.Lifter?.Name);
+        Assert.Equal("A", currentAttempt.Lifter?.Flight);
+        Assert.Equal(12, currentAttempt.Lifter?.Lot?.GetInt32());
+    }
+
+    [Fact]
+    public void PlatformDashboardPreservesUnknownAttemptAndLifterReferences()
+    {
+        var documents = new[]
+        {
+            CreateDocument(
+                "platform:unknown-lifter",
+                """{"currentAttemptId":"attempt:unknown-lifter"}"""),
+            CreateDocument(
+                "attempt:unknown-lifter",
+                """{"lifterId":"lifter:missing","liftName":"Bench","attemptNumber":1,"weight":80}"""),
+            CreateDocument(
+                "platform:missing-attempt",
+                """{"currentAttemptId":"attempt:not-stored","clockTimerLength":null}"""),
+            CreateDocument(
+                "platform:completed",
+                """{"clockState":null,"currentAttemptId":null}""")
+        };
+
+        var dashboard = CompetitionDetailsMapper.CreatePlatformDashboard(
+            "meet-1",
+            documents,
+            DateTimeOffset.Parse("2026-10-22T01:00:00Z"));
+
+        var missingLifterPlatform = Assert.Single(
+            dashboard.Platforms,
+            platform => platform.PlatformId == "platform:unknown-lifter");
+        Assert.Null(missingLifterPlatform.ClockState);
+        Assert.Null(missingLifterPlatform.ClockTimerLength);
+        Assert.NotNull(missingLifterPlatform.CurrentAttempt);
+        Assert.Null(missingLifterPlatform.CurrentAttempt.Lifter);
+
+        var missingAttemptPlatform = Assert.Single(
+            dashboard.Platforms,
+            platform => platform.PlatformId == "platform:missing-attempt");
+        Assert.Equal("attempt:not-stored", missingAttemptPlatform.CurrentAttemptId);
+        Assert.Null(missingAttemptPlatform.CurrentAttempt);
+        Assert.Equal(JsonValueKind.Null, missingAttemptPlatform.ClockTimerLength?.ValueKind);
+
+        var completedPlatform = Assert.Single(
+            dashboard.Platforms,
+            platform => platform.PlatformId == "platform:completed");
+        Assert.Null(completedPlatform.CurrentAttemptId);
+        Assert.Null(completedPlatform.CurrentAttempt);
+    }
+
+    [Fact]
+    public void PlatformDashboardSerializationContainsNoRawDocumentsOrSensitiveFields()
+    {
+        var documents = new[]
+        {
+            CreateDocument(
+                "lifter:1",
+                """
+                {
+                  "name": "Public Name",
+                  "flight": "A",
+                  "birthDate": "private-birth-date",
+                  "paymentReference": "private-payment"
+                }
+                """),
+            CreateDocument(
+                "attempt:1",
+                """{"lifterId":"lifter:1","liftName":"Deadlift","attemptNumber":"1","weight":180,"result":"good","contactEmail":"private@example.test"}"""),
+            CreateDocument(
+                "platform:1",
+                """{"name":"Platform","currentAttemptId":"attempt:1","clockTimerLength":90}""")
+        };
+
+        var response = JsonSerializer.Serialize(
+            CompetitionDetailsMapper.CreatePlatformDashboard(
+                "meet-1",
+                documents,
+                DateTimeOffset.Parse("2026-10-22T01:00:00Z")),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.Contains("Public Name", response);
+        Assert.Contains("clockTimerLength", response);
+        Assert.DoesNotContain("birthDate", response);
+        Assert.DoesNotContain("private-birth-date", response);
+        Assert.DoesNotContain("paymentReference", response);
+        Assert.DoesNotContain("private-payment", response);
+        Assert.DoesNotContain("contactEmail", response);
+        Assert.DoesNotContain("private@example.test", response);
+        Assert.DoesNotContain("changes", response);
+        Assert.DoesNotContain("result", response);
+    }
+
     private static CompetitionDocument CreateDocument(string id, string dataJson) =>
         new()
         {

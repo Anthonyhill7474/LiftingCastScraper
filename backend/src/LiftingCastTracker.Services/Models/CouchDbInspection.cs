@@ -143,6 +143,34 @@ public sealed record CompetitionPlatformDto(
     JsonElement? ClockTimerLength,
     string? CurrentAttemptId);
 
+public sealed record CompetitionPlatformsDto(
+    string CompetitionId,
+    DateTimeOffset LastSyncedAtUtc,
+    IReadOnlyList<CompetitionPlatformDashboardDto> Platforms);
+
+public sealed record CompetitionPlatformDashboardDto(
+    string PlatformId,
+    string? Name,
+    JsonElement? ClockState,
+    JsonElement? ClockTimerLength,
+    string? CurrentAttemptId,
+    CompetitionPlatformCurrentAttemptDto? CurrentAttempt);
+
+public sealed record CompetitionPlatformCurrentAttemptDto(
+    string AttemptId,
+    string? LiftName,
+    JsonElement? AttemptNumber,
+    JsonElement? Weight,
+    CompetitionPlatformLifterDto? Lifter);
+
+public sealed record CompetitionPlatformLifterDto(
+    string LifterId,
+    string? Name,
+    string? Flight,
+    JsonElement? Session,
+    JsonElement? Lot,
+    JsonElement? BodyWeight);
+
 public sealed record CompetitionLifterDto(
     string DocumentId,
     string? Name,

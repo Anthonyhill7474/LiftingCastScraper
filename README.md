@@ -214,6 +214,18 @@ curl -k -X POST https://localhost:7251/api/development/competitions/COMPETITION_
 
 Then reload the details page. No frontend polling is performed. Bodyweight is included in the synchronization allowlist; documents stored before that field was allowed include it after a full refresh or a later upstream document update.
 
+### Platform Dashboard
+
+The competition details page includes a read-only platform dashboard backed only by synchronized PostgreSQL documents. Its endpoint is:
+
+```bash
+curl -k https://localhost:7251/api/competitions/COMPETITION_ID/platforms
+```
+
+The response includes platform IDs/names and available `clockState`, `clockTimerLength`, and `currentAttemptId` source values. A current attempt is included only when its ID matches a stored attempt; its lifter is included only when `lifterId` resolves to a stored lifter. The dashboard displays the timer length as a raw value and does not interpret clock units, calculate a countdown, or predict what comes next. Missing runtime fields and unresolved references remain unknown or unavailable. The endpoint does not return stored raw documents, attempt results, or sensitive lifter fields.
+
+The completed-meet fixture confirms these field names and relationships in stored data. Clock-state meanings, timer units, and when platforms update during an active meet still require observation during a live competition; no universal runtime behavior is assumed.
+
 ## Refreshing Competition Data
 
 On a Development backend, the competition-details page shows **Refresh changes** and **Full refresh** controls only after `GET /api/development/status` explicitly reports Development mode. The synchronization endpoint remains Development-only regardless of frontend visibility.

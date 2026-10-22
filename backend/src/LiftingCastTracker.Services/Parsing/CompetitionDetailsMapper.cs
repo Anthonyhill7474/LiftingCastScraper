@@ -6,6 +6,80 @@ namespace LiftingCastTracker.Services.Parsing;
 
 public static class CompetitionDetailsMapper
 {
+    public static CompetitionPlatformsDto CreatePlatformDashboard(
+        string competitionId,
+        IReadOnlyCollection<CompetitionDocument> documents,
+        DateTimeOffset lastSyncedAtUtc)
+    {
+        var parsedDocuments = new List<ParsedDocument>(documents.Count);
+        try
+        {
+            foreach (var document in documents)
+            {
+                parsedDocuments.Add(new ParsedDocument(
+                    document,
+                    JsonDocument.Parse(document.DocumentDataJson)));
+            }
+
+            var lifterDocuments = parsedDocuments
+                .Where(item => IsLifter(item.Root))
+                .ToDictionary(item => item.Document.DocumentId, StringComparer.Ordinal);
+            var attemptsById = new Dictionary<string, (string LifterId, CompetitionAttemptDto Attempt)>(
+                StringComparer.Ordinal);
+            foreach (var parsed in parsedDocuments)
+            {
+                if (TryMapAttempt(parsed, out var lifterId, out var attempt))
+                {
+                    attemptsById[parsed.Document.DocumentId] = (lifterId, attempt);
+                }
+            }
+
+            var platforms = new List<CompetitionPlatformDashboardDto>();
+            foreach (var parsed in parsedDocuments)
+            {
+                if (!TryMapPlatform(parsed, out var platform))
+                {
+                    continue;
+                }
+
+                CompetitionPlatformCurrentAttemptDto? currentAttempt = null;
+                if (platform.CurrentAttemptId is { } attemptId
+                    && attemptsById.TryGetValue(attemptId, out var attemptRecord))
+                {
+                    var lifter = lifterDocuments.TryGetValue(attemptRecord.LifterId, out var lifterDocument)
+                        ? MapPlatformLifter(lifterDocument)
+                        : null;
+                    currentAttempt = new CompetitionPlatformCurrentAttemptDto(
+                        attemptRecord.Attempt.DocumentId,
+                        attemptRecord.Attempt.LiftName,
+                        attemptRecord.Attempt.AttemptNumber,
+                        attemptRecord.Attempt.Weight,
+                        lifter);
+                }
+
+                platforms.Add(new CompetitionPlatformDashboardDto(
+                    platform.DocumentId,
+                    platform.Name,
+                    GetValue(parsed.Root, "clockState"),
+                    platform.ClockTimerLength,
+                    platform.CurrentAttemptId,
+                    currentAttempt));
+            }
+
+            return new CompetitionPlatformsDto(
+                competitionId,
+                lastSyncedAtUtc,
+                platforms.OrderBy(platform => platform.PlatformId, StringComparer.Ordinal).ToArray());
+        }
+        finally
+        {
+            foreach (var document in parsedDocuments)
+            {
+                document.Json.Dispose();
+            }
+        }
+    }
+
     public static CompetitionDetailsDto Create(
         Competition competition,
         IReadOnlyCollection<CompetitionDocument> documents,
@@ -164,8 +238,7 @@ public static class CompetitionDetailsMapper
     private static bool TryMapPlatform(ParsedDocument parsed, out CompetitionPlatformDto platform)
     {
         var root = parsed.Root;
-        if (root.TryGetProperty("clockState", out _)
-            || root.TryGetProperty("currentAttemptId", out _))
+        if (IsPlatformRuntime(root))
         {
             platform = new CompetitionPlatformDto(
                 parsed.Document.DocumentId,
@@ -179,6 +252,22 @@ public static class CompetitionDetailsMapper
         platform = null!;
         return false;
     }
+
+    private static bool IsPlatformRuntime(JsonElement root) =>
+        root.TryGetProperty("clockState", out _)
+        || root.TryGetProperty("clockTimerLength", out _)
+        || root.TryGetProperty("currentAttemptId", out _)
+        || root.TryGetProperty("barAndCollarsWeight", out _)
+        || root.TryGetProperty("liveStreamLink", out _);
+
+    private static CompetitionPlatformLifterDto MapPlatformLifter(ParsedDocument lifter) =>
+        new(
+            lifter.Document.DocumentId,
+            GetString(lifter.Root, "name"),
+            GetString(lifter.Root, "flight"),
+            GetValue(lifter.Root, "session"),
+            GetValue(lifter.Root, "lot"),
+            GetValue(lifter.Root, "bodyWeight"));
 
     private static string? GetWeightClassName(JsonElement configuration, string? weightClassId)
     {

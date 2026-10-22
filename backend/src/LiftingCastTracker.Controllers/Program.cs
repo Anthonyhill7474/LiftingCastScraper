@@ -499,4 +499,48 @@ app.MapGet(
     })
     .WithName("GetCompetitionDetails");
 
+app.MapGet(
+    "/api/competitions/{id}/platforms",
+    async (
+        string id,
+        ICompetitionRepository competitionRepository,
+        ICompetitionSyncRepository syncRepository,
+        CancellationToken cancellationToken) =>
+    {
+        if (!CompetitionIdValidator.IsValid(id))
+        {
+            return Results.BadRequest(new { error = "Invalid competition ID." });
+        }
+
+        if (await competitionRepository.GetByIdAsync(id) is null)
+        {
+            return Results.NotFound(new { error = "Competition not found in the local directory." });
+        }
+
+        var (syncState, documents) = await syncRepository.GetDetailsDataAsync(id, cancellationToken);
+        if (syncState is null)
+        {
+            return Results.Conflict(new
+            {
+                error = "Competition has not been synchronized yet.",
+                competitionId = id
+            });
+        }
+
+        try
+        {
+            return Results.Ok(CompetitionDetailsMapper.CreatePlatformDashboard(
+                id,
+                documents,
+                syncState.LastSyncedAt));
+        }
+        catch (JsonException)
+        {
+            return Results.Problem(
+                detail: "Stored competition data is malformed.",
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+    })
+    .WithName("GetCompetitionPlatforms");
+
 app.Run();
