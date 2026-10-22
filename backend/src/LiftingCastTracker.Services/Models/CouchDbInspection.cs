@@ -132,6 +132,7 @@ public sealed record CompetitionDetailsDto(
     string Name,
     string? Date,
     string? DateFormat,
+    string? Units,
     DateTimeOffset? LastSyncedAtUtc,
     IReadOnlyList<CompetitionPlatformDto> Platforms,
     IReadOnlyList<CompetitionLifterDto> Lifters);
@@ -180,6 +181,7 @@ public sealed record CompetitionLifterDto(
     JsonElement? Lot,
     JsonElement? BodyWeight,
     string? PlatformId,
+    CompetitionLifterPerformanceDto Performance,
     IReadOnlyList<CompetitionAttemptDto> Attempts);
 
 public sealed record CompetitionDivisionDto(
@@ -187,7 +189,28 @@ public sealed record CompetitionDivisionDto(
     string? Name,
     string? WeightClassId,
     string? WeightClassName,
-    string? RawOrEquipped);
+    double? WeightClassMaxWeight,
+    string? Gender,
+    string? RawOrEquipped,
+    string? ScoreBy,
+    CompetitionLiftConfigurationDto Lifts);
+
+public sealed record CompetitionLiftConfigurationDto(
+    bool? Squat,
+    bool? Bench,
+    bool? Dead);
+
+public sealed record CompetitionLifterPerformanceDto(
+    double? BestSquatKg,
+    double? BestBenchKg,
+    double? BestDeadliftKg,
+    double? ConfirmedSuccessfulLiftSumKg,
+    double? CompleteThreeLiftTotalKg,
+    double? EligibleCompleteTotalKg,
+    double? BenchOnlyResultKg,
+    double? BaselineProjectedLiftSumKg,
+    double? BaselineProjectedThreeLiftTotalKg,
+    double? BaselineProjectedEligibleTotalKg);
 
 public sealed record CompetitionAttemptDto(
     string DocumentId,
@@ -195,3 +218,31 @@ public sealed record CompetitionAttemptDto(
     JsonElement? AttemptNumber,
     JsonElement? Weight,
     JsonElement? Result);
+
+public sealed record CompetitionStrategyRequest(
+    string DivisionId,
+    string WeightClassId,
+    IReadOnlyList<CompetitionStrategyLifterScenario> Lifters);
+
+public sealed record CompetitionStrategyLifterScenario(
+    string LifterId,
+    IReadOnlyList<CompetitionAttemptScenario> Attempts);
+
+public sealed record CompetitionAttemptScenario(
+    string AttemptId,
+    double Weight,
+    string Result);
+
+public sealed record CompetitionStrategyResult(
+    string DivisionId,
+    string WeightClassId,
+    IReadOnlyList<CompetitionStrategyStandingDto> Standings);
+
+public sealed record CompetitionStrategyStandingDto(
+    string LifterId,
+    string? Name,
+    JsonElement? BodyWeight,
+    CompetitionLifterPerformanceDto CurrentPerformance,
+    CompetitionLifterPerformanceDto ScenarioPerformance,
+    int? ProvisionalPlace,
+    bool IsTied);

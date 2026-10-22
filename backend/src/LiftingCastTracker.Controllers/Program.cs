@@ -3,6 +3,7 @@ using LiftingCastTracker.Repositories.ExternalData;
 using LiftingCastTracker.Repositories.Implementations;
 using LiftingCastTracker.Controllers.BackgroundServices;
 using LiftingCastTracker.Services.Import;
+using LiftingCastTracker.Services.Calculations;
 using LiftingCastTracker.Services.Models;
 using LiftingCastTracker.Services.Parsing;
 using LiftingCastTracker.Services.Repositories;
@@ -498,6 +499,57 @@ app.MapGet(
         }
     })
     .WithName("GetCompetitionDetails");
+
+app.MapPost(
+    "/api/competitions/{id}/strategy",
+    async (
+        string id,
+        CompetitionStrategyRequest request,
+        ICompetitionRepository competitionRepository,
+        ICompetitionSyncRepository syncRepository,
+        CancellationToken cancellationToken) =>
+    {
+        if (!CompetitionIdValidator.IsValid(id))
+        {
+            return Results.BadRequest(new { error = "Invalid competition ID." });
+        }
+
+        var competition = await competitionRepository.GetByIdAsync(id);
+        if (competition is null)
+        {
+            return Results.NotFound(new { error = "Competition not found in the local directory." });
+        }
+
+        var (syncState, documents) = await syncRepository.GetDetailsDataAsync(id, cancellationToken);
+        if (syncState is null)
+        {
+            return Results.Conflict(new
+            {
+                error = "Competition has not been synchronized yet.",
+                competitionId = id
+            });
+        }
+
+        try
+        {
+            var details = CompetitionDetailsMapper.Create(
+                competition,
+                documents,
+                syncState.LastSyncedAt);
+            return Results.Ok(CompetitionStrategyCalculator.Calculate(details, request));
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+        catch (JsonException)
+        {
+            return Results.Problem(
+                detail: "Stored competition data is malformed.",
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+    })
+    .WithName("CalculateCompetitionStrategy");
 
 app.MapGet(
     "/api/competitions/{id}/platforms",

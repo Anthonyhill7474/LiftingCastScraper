@@ -241,6 +241,39 @@ My Lifters cards show available flight, session, platform, bodyweight, and squat
 
 The completed-meet fixture confirms these field names and relationships in stored data. Clock-state meanings, timer units, and when platforms update during an active meet still require observation during a live competition; no universal runtime behavior is assumed.
 
+### Performance and Attempt Strategy
+
+The details response includes service-calculated best successful squat, bench, and deadlift values; partial confirmed lift sums; complete three-lift totals only when all three verified `good` lifts exist; and baseline projections. Only positive finite weights are considered. Failed `bad` attempts never contribute. Unresolved selected attempt weights are treated as hypothetical successes only in the projection, while missing weights are not invented. `KG` and pound units are normalized to kilograms for these calculations; unknown units produce unavailable normalized values.
+
+In **Attempt Strategy**, choose a followed athlete, one of their configured divisions/weight classes, and one or more opponents. Opponent eligibility uses the same division document ID, weight-class ID, gender, equipment category, and lift configuration; matching numerical weight limits alone is not sufficient. The backend reads stored PostgreSQL details and returns provisional projected category totals and ranks. It does not persist scenario values or edit source data.
+
+Only existing unresolved attempts with a selected positive weight can be simulated. A scenario may change that selected weight and assume `good` or `bad`; confirmed successful attempts remain fixed, and the service counts only the best eligible attempt per lift. **Reset scenario** clears these browser-memory-only changes. Baseline projections and simulated results are hypothetical, and projected rankings are unofficial; federation eligibility and tie-break rules have not been verified.
+
+The original scoring JavaScript reference and its coefficient tables are not present in this repository. The points-system selector defaults to IPF GL and saves the selection in browser local storage, but current/projected scores and Best Overall rankings are unavailable until that source is supplied. No coefficients are guessed. Bench-only and other configured lift categories are identified from the stored division configuration; the API exposes eligible category totals without calling a two-lift result a three-lift total.
+
+The current CouchDB fixture does not establish upcoming-attempt order. The UI therefore reports **Order unavailable** and shows no attempts-ahead or wait-time estimate. A live queue must be verified before introducing those estimates.
+
+Strategy calculations use a stateless API request and do not contact LiftingCast:
+
+```bash
+curl -k -X POST https://localhost:7251/api/competitions/COMPETITION_ID/strategy \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "divisionId": "DIVISION_DOCUMENT_ID",
+    "weightClassId": "WEIGHT_CLASS_ID",
+    "lifters": [
+      {
+        "lifterId": "LIFTER_DOCUMENT_ID",
+        "attempts": [
+          { "attemptId": "ATTEMPT_DOCUMENT_ID", "weight": 180, "result": "good" }
+        ]
+      }
+    ]
+  }'
+```
+
+The request only accepts existing unresolved attempts with a selected weight; scenario outcomes must be `good` or `bad`. Invalid, resolved, duplicate, or out-of-division inputs are rejected.
+
 ## Refreshing Competition Data
 
 On a Development backend, the competition-details page shows **Refresh changes** and **Full refresh** controls only after `GET /api/development/status` explicitly reports Development mode. The synchronization endpoint remains Development-only regardless of frontend visibility.

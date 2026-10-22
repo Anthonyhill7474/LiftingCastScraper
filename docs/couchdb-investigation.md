@@ -120,6 +120,22 @@ For a future live synchronizer, start with a manually verified, read-only `_chan
 
 Live attempt tracking would at least need attempt ID, lifter link, lift and attempt number, weight, verified outcome/judge decision, and profile division/flight/session/lot data. Warm-up or clock timing additionally needs verified platform state and scheduling semantics. Projected totals require verified outcome rules and scoring configuration; placings also require verified division/tie-breaking rules. The fixture alone does not establish these calculations.
 
+## Performance and strategy follow-up
+
+The existing completed fixture was rechecked for calculation inputs. These observations describe this meet only:
+
+- Attempt `liftName` values are `squat`, `bench`, and `dead`; attempt numbers are strings `"1"`–`"3"`. Of 252 attempts, 192 have result `good`, 48 have `bad`, and 12 have no result and no selected weight. Populated weights are JSON integers or decimals. `good` and `bad` are the only observed result strings.
+- All 28 lifter profiles have numeric bodyweight, `gender`, `platformId`, `flight`, `session`, and `lot`. The competition metadata has `units: "KG"`.
+- Division configuration documents have `gender`, `rawOrEquipped`, `scoreBy`, `lifts`, and `weightClasses`. The fixture contains three `lifts` combinations: squat/bench/dead (38 configs), bench only (36), and bench/dead (36). Configured weight-class entries expose `_id`, `name`, and numeric `maxWeight`; `9999` appears for an `"All"` class and should not be treated as a normal class limit.
+- Gender values in division configurations are `MALE` and `FEMALE`; equipment categories are `RAW` and `EQUIPPED`; `scoreBy` is `TOTAL` or `IPF_POINTS`. The lifter's `divisions` entries connect the lifter to a division document and a declared weight-class ID. Opponents should be compared by those identifiers and compatible configuration, not merely equal numeric limits.
+- The current synchronization allowlist already includes these calculation fields and the nested division/weight-class keys. It excludes birth dates and payment/contact data; no allowlist expansion was needed for this first calculation pass.
+
+Only exact observed `good` outcomes are treated as successful; `bad` is excluded, and unresolved attempts remain unknown. A positive selected unresolved weight can support a clearly hypothetical baseline projection; an absent weight is never filled in. Pound conversion is supported by the calculation code, but this fixture only verifies kilograms. No additional real meet was available to validate other unit/category representations.
+
+The repository does not contain the original scoring JavaScript reference or its coefficient tables. `scoreBy` identifies source configuration, not the exact formulas or coefficients for IPF GL, DOTS, Wilks, or legacy IPF. Those scores and Best Overall ranking remain unavailable until the reference is supplied; coefficients must not be inferred.
+
+The completed snapshot also cannot establish live lifting order. Attempt documents expose lift, round, selected weight, and lifter ID; profiles expose platform, flight, session, and lot; the runtime document exposes current state but no verified upcoming queue. These fields do not prove a live sort order, and this completed meet has no current attempt. The interface therefore reports order unavailable and does not estimate attempts ahead or wait time. Verify ordering against an actively running meet before implementing such estimates.
+
 ## Outstanding questions for live testing
 
 1. Does a saved full `last_seq` retrieve the expected next changes, and how does CouchDB behave at batch limits, for repeated updates to one document, and for empty batches?

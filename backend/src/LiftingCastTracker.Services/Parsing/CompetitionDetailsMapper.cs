@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Globalization;
+using LiftingCastTracker.Services.Calculations;
 using LiftingCastTracker.Services.Models;
 
 namespace LiftingCastTracker.Services.Parsing;
@@ -101,6 +102,7 @@ public static class CompetitionDetailsMapper
                     item => item.Document.DocumentId,
                     item => item.Root,
                     StringComparer.Ordinal);
+            var units = GetFirstStringValue(parsedDocuments, "units");
 
             var lifterDocuments = parsedDocuments
                 .Where(item => IsLifter(item.Root))
@@ -132,7 +134,8 @@ public static class CompetitionDetailsMapper
                 .Select(item => MapLifter(
                     item,
                     attemptsByLifter.GetValueOrDefault(item.Document.DocumentId, []),
-                    divisionConfigurations))
+                    divisionConfigurations,
+                    units))
                 .OrderBy(lifter => lifter.Flight, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(lifter => lifter.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(lifter => lifter.DocumentId, StringComparer.Ordinal)
@@ -143,6 +146,7 @@ public static class CompetitionDetailsMapper
                 competition.Name,
                 competition.Date,
                 competition.DateFormat,
+                units,
                 lastSyncedAtUtc,
                 platforms.OrderBy(platform => platform.DocumentId, StringComparer.Ordinal).ToArray(),
                 lifters);
@@ -159,7 +163,8 @@ public static class CompetitionDetailsMapper
     private static CompetitionLifterDto MapLifter(
         ParsedDocument lifter,
         IReadOnlyCollection<CompetitionAttemptDto> attempts,
-        IReadOnlyDictionary<string, JsonElement> divisionConfigurations)
+        IReadOnlyDictionary<string, JsonElement> divisionConfigurations,
+        string? units)
     {
         var root = lifter.Root;
         var divisions = new List<CompetitionDivisionDto>();
@@ -179,15 +184,27 @@ public static class CompetitionDetailsMapper
                     && divisionConfigurations.TryGetValue(divisionId, out var configuration)
                         ? configuration
                         : default;
+                var weightClass = GetWeightClass(config, weightClassId);
                 divisions.Add(new CompetitionDivisionDto(
                     divisionId,
                     GetString(config, "name"),
                     weightClassId,
-                    GetWeightClassName(config, weightClassId),
-                    GetString(division, "rawOrEquipped")));
+                    GetString(weightClass, "name"),
+                    GetDouble(weightClass, "maxWeight"),
+                    GetString(config, "gender"),
+                    GetString(division, "rawOrEquipped") ?? GetString(config, "rawOrEquipped"),
+                    GetString(config, "scoreBy"),
+                    new CompetitionLiftConfigurationDto(
+                        GetBoolean(config, "squat", "lifts"),
+                        GetBoolean(config, "bench", "lifts"),
+                        GetBoolean(config, "dead", "lifts"))));
             }
         }
 
+        var mappedAttempts = attempts
+            .OrderBy(attempt => GetNumericValue(attempt.AttemptNumber))
+            .ThenBy(attempt => attempt.DocumentId, StringComparer.Ordinal)
+            .ToArray();
         return new CompetitionLifterDto(
             lifter.Document.DocumentId,
             GetString(root, "name"),
@@ -197,10 +214,8 @@ public static class CompetitionDetailsMapper
             GetValue(root, "lot"),
             GetValue(root, "bodyWeight"),
             GetString(root, "platformId"),
-            attempts
-                .OrderBy(attempt => GetNumericValue(attempt.AttemptNumber))
-                .ThenBy(attempt => attempt.DocumentId, StringComparer.Ordinal)
-                .ToArray());
+            CompetitionPerformanceCalculator.Calculate(mappedAttempts, units),
+            mappedAttempts);
     }
 
     private static bool IsLifter(JsonElement document) =>
@@ -270,28 +285,65 @@ public static class CompetitionDetailsMapper
             GetValue(lifter.Root, "lot"),
             GetValue(lifter.Root, "bodyWeight"));
 
-    private static string? GetWeightClassName(JsonElement configuration, string? weightClassId)
+    private static JsonElement GetWeightClass(JsonElement configuration, string? weightClassId)
     {
         if (weightClassId is null
             || configuration.ValueKind != JsonValueKind.Object
             || !configuration.TryGetProperty("weightClasses", out var weightClasses)
             || weightClasses.ValueKind != JsonValueKind.Object)
         {
-            return null;
+            return default;
         }
 
         foreach (var item in weightClasses.EnumerateObject())
         {
             if ((item.Name == weightClassId
-                    || GetString(item.Value, "_id") == weightClassId)
-                && GetString(item.Value, "name") is { } name)
+                    || GetString(item.Value, "_id") == weightClassId))
             {
-                return name;
+                return item.Value;
             }
         }
 
-        return null;
+        return default;
     }
+
+    private static string? GetFirstStringValue(
+        IEnumerable<ParsedDocument> documents,
+        string propertyName) =>
+        documents.Select(item => GetString(item.Root, propertyName))
+            .FirstOrDefault(value => value is not null);
+
+    private static bool? GetBoolean(JsonElement element, string propertyName, string? parentName = null)
+    {
+        var parent = parentName is null ? element : GetProperty(element, parentName);
+        if (parent.ValueKind != JsonValueKind.Object
+            || !parent.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
+
+    private static double? GetDouble(JsonElement element, string propertyName)
+    {
+        var value = GetProperty(element, propertyName);
+        return value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number)
+            && double.IsFinite(number)
+                ? number
+                : null;
+    }
+
+    private static JsonElement GetProperty(JsonElement element, string propertyName) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(propertyName, out var value)
+            ? value
+            : default;
 
     private static string? GetString(JsonElement element, string propertyName) =>
         element.ValueKind == JsonValueKind.Object

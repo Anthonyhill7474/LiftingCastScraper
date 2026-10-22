@@ -136,6 +136,66 @@ public sealed class CompetitionDetailsTests
     }
 
     [Fact]
+    public void MapsUnitGenderLiftAndWeightClassConfigurationForCalculations()
+    {
+        var documents = new[]
+        {
+            CreateDocument(
+                "division:open",
+                """
+                {
+                  "name": "Open",
+                  "gender": "FEMALE",
+                  "rawOrEquipped": "RAW",
+                  "scoreBy": "TOTAL",
+                  "lifts": { "squat": true, "bench": true, "dead": true },
+                  "weightClasses": {
+                    "weight:83": { "_id": "weight:83", "name": "83", "maxWeight": 83 }
+                  }
+                }
+                """),
+            CreateDocument("meet:metadata", """{"units":"KG"}"""),
+            CreateDocument(
+                "lifter:1",
+                """
+                {
+                  "name": "Athlete",
+                  "gender": "FEMALE",
+                  "bodyWeight": 82,
+                  "divisions": [
+                    {
+                      "divisionId": "division:open",
+                      "declaredAwardsWeightClassId": "weight:83",
+                      "rawOrEquipped": "RAW"
+                    }
+                  ]
+                }
+                """),
+            CreateDocument("attempt:squat", """{"lifterId":"lifter:1","liftName":"squat","attemptNumber":"1","weight":100,"result":"good"}"""),
+            CreateDocument("attempt:bench", """{"lifterId":"lifter:1","liftName":"bench","attemptNumber":"1","weight":80,"result":"good"}"""),
+            CreateDocument("attempt:dead", """{"lifterId":"lifter:1","liftName":"dead","attemptNumber":"1","weight":120,"result":"good"}""")
+        };
+
+        var details = CompetitionDetailsMapper.Create(
+            new Competition { Id = "meet-1", Name = "Meet" },
+            documents,
+            DateTimeOffset.UtcNow);
+
+        Assert.Equal("KG", details.Units);
+        var lifter = Assert.Single(details.Lifters);
+        var division = Assert.Single(lifter.Divisions);
+        Assert.Equal("FEMALE", division.Gender);
+        Assert.Equal("RAW", division.RawOrEquipped);
+        Assert.Equal("TOTAL", division.ScoreBy);
+        Assert.Equal(83, division.WeightClassMaxWeight);
+        Assert.Equal("83", division.WeightClassName);
+        Assert.Equal(true, division.Lifts.Squat);
+        Assert.Equal(true, division.Lifts.Bench);
+        Assert.Equal(true, division.Lifts.Dead);
+        Assert.Equal(300, lifter.Performance.CompleteThreeLiftTotalKg);
+    }
+
+    [Fact]
     public void SerializedDetailsExposeOnlyExplicitPrivacySafeDtoFields()
     {
         var competition = new Competition { Id = "meet-1", Name = "Privacy Test" };

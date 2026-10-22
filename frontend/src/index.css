@@ -280,6 +280,22 @@ body {
   font-size: 0.9rem;
 }
 
+.platform-next-up {
+  align-items: baseline;
+  background: #f5f6fc;
+  border-radius: 6px;
+  color: #555;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.65rem;
+  margin-bottom: 0.85rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.platform-next-up strong {
+  color: #4d5db3;
+}
+
 .platform-grid {
   display: grid;
   gap: 1rem;
@@ -364,6 +380,223 @@ body {
 .current-attempt > span {
   color: #555;
   font-size: 0.88rem;
+}
+
+.strategy-dashboard {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  margin: 1.5rem 0 2rem;
+  padding: 1rem;
+}
+
+.strategy-header,
+.scenario-actions {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  justify-content: space-between;
+}
+
+.strategy-header h3 {
+  color: #4d5db3;
+  font-size: 1.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.strategy-header p,
+.strategy-limitation {
+  color: #666;
+  font-size: 0.88rem;
+}
+
+.points-system-control,
+.strategy-selection label,
+.strategy-opponent-controls label,
+.scenario-attempt label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.points-system-control span,
+.strategy-selection label > span,
+.strategy-opponent-controls label > span,
+.scenario-attempt label > span {
+  color: #555;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.points-system-control select,
+.strategy-selection select,
+.strategy-opponent-controls select,
+.scenario-attempt select,
+.scenario-attempt input {
+  background: #fff;
+  border: 1px solid #bbb;
+  border-radius: 5px;
+  color: #333;
+  font: inherit;
+  min-height: 42px;
+  max-width: 100%;
+  padding: 0.45rem 0.6rem;
+}
+
+.points-system-control select:focus-visible,
+.strategy-selection select:focus-visible,
+.strategy-opponent-controls select:focus-visible,
+.scenario-attempt select:focus-visible,
+.scenario-attempt input:focus-visible {
+  outline: 3px solid #344db8;
+  outline-offset: 2px;
+}
+
+.strategy-limitation {
+  background: #fff8e1;
+  border-radius: 5px;
+  line-height: 1.45;
+  margin: 0.8rem 0;
+  padding: 0.65rem 0.75rem;
+}
+
+.strategy-mode-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.8rem 0 1rem;
+}
+
+.lifter-view-button:disabled,
+.text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.strategy-selection,
+.strategy-opponent-controls {
+  align-items: flex-end;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  margin: 0.8rem 0;
+}
+
+.strategy-opponent-controls {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.strategy-opponent-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.strategy-opponent-chip {
+  align-items: center;
+  background: #f1f2fb;
+  border-radius: 20px;
+  color: #333;
+  display: inline-flex;
+  gap: 0.5rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.75rem;
+}
+
+.strategy-opponent-chip button {
+  background: #fff;
+  border: 0;
+  border-radius: 50%;
+  color: #4d5db3;
+  cursor: pointer;
+  font-size: 1.15rem;
+  height: 30px;
+  line-height: 1;
+  width: 30px;
+}
+
+.scenario-actions {
+  align-items: center;
+  margin-top: 1.1rem;
+}
+
+.scenario-actions h4,
+.strategy-results h4 {
+  color: #4d5db3;
+}
+
+.scenario-athletes {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+
+.scenario-athlete {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  min-width: 0;
+  padding: 0.75rem;
+}
+
+.scenario-athlete legend {
+  color: #333;
+  font-weight: 600;
+  padding: 0 0.35rem;
+}
+
+.scenario-athlete > p {
+  color: #666;
+  font-size: 0.88rem;
+}
+
+.scenario-attempt {
+  border-top: 1px solid #eee;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.65rem 0;
+}
+
+.scenario-attempt:first-of-type {
+  border-top: 0;
+}
+
+.scenario-results {
+  margin-top: 1rem;
+}
+
+.strategy-results {
+  margin-top: 1.25rem;
+}
+
+.strategy-results > p {
+  color: #666;
+  font-size: 0.88rem;
+  margin: 0.35rem 0 0.65rem;
+}
+
+.strategy-table {
+  border-collapse: collapse;
+  min-width: 1050px;
+  text-align: left;
+  width: 100%;
+}
+
+.strategy-table th,
+.strategy-table td {
+  border-top: 1px solid #eee;
+  padding: 0.55rem 0.45rem;
+  white-space: nowrap;
+}
+
+.strategy-table thead th {
+  color: #666;
+  font-size: 0.82rem;
+}
+
+.strategy-table tbody th {
+  color: #333;
 }
 
 .flight-group {
@@ -528,6 +761,25 @@ body {
   background: #f5f6fc;
 }
 
+.performance-summary {
+  background: #f5f6fc;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.35rem;
+  margin: 0 0 0.85rem;
+  padding: 0.7rem;
+}
+
+.performance-summary strong {
+  color: #4d5db3;
+  font-size: 0.9rem;
+}
+
+.performance-summary span {
+  color: #555;
+  font-size: 0.85rem;
+}
+
 .attempt-table-wrap {
   overflow-x: auto;
   width: 100%;
@@ -617,6 +869,24 @@ body {
 
   .lifter-view-switch {
     width: 100%;
+  }
+
+  .strategy-dashboard {
+    padding: 0.8rem;
+  }
+
+  .strategy-opponent-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-opponent-controls .lifter-view-button {
+    flex: initial;
+    width: 100%;
+  }
+
+  .scenario-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .lifter-view-button {

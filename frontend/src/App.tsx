@@ -6,6 +6,23 @@ import {
   saveFollowedLifterIds,
   toggleFollowedLifter,
 } from './followedLifters.js'
+import {
+  describeAttempt,
+  getAttemptForSlot,
+  getAttemptStatus,
+  getLiftType,
+} from './attemptPresentation.js'
+import {
+  DEFAULT_POINTS_SYSTEM,
+  loadPointsSystem,
+  POINTS_SYSTEMS,
+  savePointsSystem,
+} from './pointsSystems.js'
+import {
+  getEligibleStrategyOpponents,
+  resetScenarios,
+  updateScenario,
+} from './strategyUi.js'
 
 interface Competition {
   id: string
@@ -24,9 +41,39 @@ interface CompetitionDetails {
   name: string
   date?: string | null
   dateFormat?: string | null
+  units?: string | null
   lastSyncedAtUtc?: string | null
   platforms: Platform[]
   lifters: Lifter[]
+}
+
+interface LifterPerformance {
+  bestSquatKg: number | null
+  bestBenchKg: number | null
+  bestDeadliftKg: number | null
+  confirmedSuccessfulLiftSumKg: number | null
+  completeThreeLiftTotalKg: number | null
+  eligibleCompleteTotalKg: number | null
+  benchOnlyResultKg: number | null
+  baselineProjectedLiftSumKg: number | null
+  baselineProjectedThreeLiftTotalKg: number | null
+  baselineProjectedEligibleTotalKg: number | null
+}
+
+interface CompetitionStrategyStanding {
+  lifterId: string
+  name?: string | null
+  bodyWeight?: JsonValue
+  currentPerformance: LifterPerformance
+  scenarioPerformance: LifterPerformance
+  provisionalPlace?: number | null
+  isTied: boolean
+}
+
+interface CompetitionStrategyResult {
+  divisionId: string
+  weightClassId: string
+  standings: CompetitionStrategyStanding[]
 }
 
 interface SyncSummary {
@@ -88,7 +135,15 @@ interface Division {
   name?: string | null
   weightClassId?: string | null
   weightClassName?: string | null
+  weightClassMaxWeight?: number | null
+  gender?: string | null
   rawOrEquipped?: string | null
+  scoreBy?: string | null
+  lifts: {
+    squat?: boolean | null
+    bench?: boolean | null
+    dead?: boolean | null
+  }
 }
 
 interface Attempt {
@@ -108,6 +163,7 @@ interface Lifter {
   lot?: JsonValue
   bodyWeight?: JsonValue
   platformId?: string | null
+  performance: LifterPerformance
   attempts: Attempt[]
 }
 
@@ -136,21 +192,6 @@ function formatValue(value?: JsonValue): string {
   return typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
 
-function getLiftType(liftName?: string | null): 'squat' | 'bench' | 'deadlift' | null {
-  const name = liftName?.toLocaleLowerCase()
-  if (!name) return null
-  if (name.includes('squat')) return 'squat'
-  if (name.includes('bench')) return 'bench'
-  if (name.includes('dead')) return 'deadlift'
-  return null
-}
-
-function getAttemptNumber(value?: JsonValue): number | null {
-  if (typeof value !== 'string' && typeof value !== 'number') return null
-  const number = Number(value)
-  return Number.isInteger(number) ? number : null
-}
-
 function getLifterGroups(lifters: Lifter[]) {
   const groups = new Map<string, { label: string; lifters: Lifter[] }>()
   for (const lifter of lifters) {
@@ -168,35 +209,34 @@ function getLifterGroups(lifters: Lifter[]) {
   return [...groups.values()]
 }
 
-function getAttemptForSlot(lifter: Lifter, lift: string, number: number): Attempt | undefined {
-  return lifter.attempts.find((attempt) =>
-    getLiftType(attempt.liftName) === lift && getAttemptNumber(attempt.attemptNumber) === number,
-  )
-}
-
-function describeAttempt(attempt?: Attempt): string {
-  if (!attempt) return '—'
-  const weight = formatValue(attempt.weight)
-  const result = formatValue(attempt.result)
-  if (result === '—') return weight === '—' ? 'No result' : `${weight} · No result`
-  if (weight === '—') return result
-  return `${weight} · ${result}`
-}
-
-function getAttemptStatus(attempt?: Attempt): 'missing' | 'success' | 'failure' | 'pending' | 'incomplete' {
-  if (!attempt) return 'missing'
-  if (typeof attempt.result !== 'string' || attempt.result.trim() === '') return 'incomplete'
-  const result = attempt.result.trim().toLocaleLowerCase()
-  if (result === 'good') return 'success'
-  if (result === 'bad') return 'failure'
-  if (result === 'pending') return 'pending'
-  return 'incomplete'
-}
-
 function formatSyncedAt(value?: string | null): string {
   if (!value) return 'Not available'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function formatKg(value?: number | null): string {
+  return value === undefined || value === null || !Number.isFinite(value)
+    ? '—'
+    : `${value.toFixed(2)} kg`
+}
+
+function canEditScenarioAttempt(attempt: Attempt, units?: string | null): boolean {
+  const result = typeof attempt.result === 'string' ? attempt.result.trim().toLowerCase() : ''
+  const weight = typeof attempt.weight === 'string' || typeof attempt.weight === 'number'
+    ? Number(attempt.weight)
+    : Number.NaN
+  return result !== 'good'
+    && result !== 'bad'
+    && getLiftType(attempt.liftName) !== null
+    && Number.isFinite(weight)
+    && weight > 0
+    && ['kg', 'kgs', 'kilogram', 'kilograms', 'lb', 'lbs', 'pound', 'pounds']
+      .includes(units?.trim().toLowerCase() ?? '')
+}
+
+function getScenarioKey(lifterId: string, attemptId: string): string {
+  return `${lifterId}:${attemptId}`
 }
 
 export default function App() {
@@ -216,6 +256,34 @@ export default function App() {
   }>({ competitionId: '', lifterIds: [] })
   const [lifterView, setLifterView] = useState<'all' | 'followed'>('all')
   const [followStorageError, setFollowStorageError] = useState<string | null>(null)
+  const [initialPointsPreference] = useState(() => {
+    try {
+      return { system: loadPointsSystem(window.localStorage), error: null }
+    } catch {
+      return {
+        system: DEFAULT_POINTS_SYSTEM,
+        error: 'The points-system preference could not be read from this browser.',
+      }
+    }
+  })
+  const [pointsSystem, setPointsSystem] = useState(initialPointsPreference.system)
+  const [pointsSystemError, setPointsSystemError] = useState<string | null>(
+    initialPointsPreference.error,
+  )
+  const [strategyMode, setStrategyMode] = useState<'weight-class' | 'best-overall'>('weight-class')
+  const [selectedStrategistId, setSelectedStrategistId] = useState('')
+  const [selectedStrategyDivisionKey, setSelectedStrategyDivisionKey] = useState('')
+  const [selectedOpponentId, setSelectedOpponentId] = useState('')
+  const [strategyOpponentIds, setStrategyOpponentIds] = useState<string[]>([])
+  const [strategyScenarios, setStrategyScenarios] = useState<
+    Record<string, { weight: string; result: 'good' | 'bad' }>
+  >({})
+  const [strategyResultState, setStrategyResultState] = useState<{
+    requestKey: string
+    result: CompetitionStrategyResult
+  } | null>(null)
+  const [strategyLoading, setStrategyLoading] = useState(false)
+  const [strategyError, setStrategyError] = useState<string | null>(null)
   const [notSynchronized, setNotSynchronized] = useState(false)
   const [backendDevelopment, setBackendDevelopment] = useState(false)
   const [refreshing, setRefreshing] = useState<'changes' | 'full' | null>(null)
@@ -236,6 +304,88 @@ export default function App() {
       ? details.lifters
       : filterFollowedLifters(details.lifters, followedLifterIds)
     : []
+  const followedInCompetition = details?.lifters.filter(
+    (lifter) => followedLifterIdSet.has(lifter.documentId),
+  ) ?? []
+  const activeStrategistId = followedInCompetition.some(
+    (lifter) => lifter.documentId === selectedStrategistId,
+  )
+    ? selectedStrategistId
+    : followedInCompetition[0]?.documentId ?? ''
+  const strategyLifter = details?.lifters.find((lifter) => lifter.documentId === activeStrategistId)
+  const strategyDivisions = strategyLifter?.divisions.filter((division) =>
+    division.divisionId
+      && division.weightClassId
+      && division.gender
+      && division.lifts?.squat !== null
+      && division.lifts?.squat !== undefined
+      && division.lifts?.bench !== null
+      && division.lifts?.bench !== undefined
+      && division.lifts?.dead !== null
+      && division.lifts?.dead !== undefined,
+  ) ?? []
+  const selectedStrategyDivision = strategyDivisions.find(
+    (division) => `${division.divisionId}|${division.weightClassId}` === selectedStrategyDivisionKey,
+  ) ?? strategyDivisions[0]
+  const activeStrategyDivisionKey = selectedStrategyDivision
+    ? `${selectedStrategyDivision.divisionId}|${selectedStrategyDivision.weightClassId}`
+    : ''
+  const availableStrategyOpponents = details
+    ? getEligibleStrategyOpponents(
+        details.lifters,
+        activeStrategistId,
+        selectedStrategyDivision,
+      )
+    : []
+  const activeStrategyOpponentIds = strategyOpponentIds.filter((id) =>
+    id !== activeStrategistId
+      && availableStrategyOpponents.some((lifter) => lifter.documentId === id),
+  )
+  const activeSelectedOpponentId = availableStrategyOpponents.some(
+    (lifter) => lifter.documentId === selectedOpponentId
+      && !activeStrategyOpponentIds.includes(lifter.documentId),
+  )
+    ? selectedOpponentId
+    : ''
+  const strategyLifters = details?.lifters.filter((lifter) =>
+    lifter.documentId === activeStrategistId
+      || activeStrategyOpponentIds.includes(lifter.documentId),
+  ) ?? []
+  const eligibleStrategyOpponents = availableStrategyOpponents.filter(
+    (lifter) => !activeStrategyOpponentIds.includes(lifter.documentId),
+  )
+  const strategyRequestPayload = selectedCompetition
+    && details
+    && selectedStrategyDivision
+    && activeStrategistId
+    ? {
+        divisionId: selectedStrategyDivision.divisionId,
+        weightClassId: selectedStrategyDivision.weightClassId,
+        lifters: [activeStrategistId, ...activeStrategyOpponentIds].map((lifterId) => {
+          const lifter = details.lifters.find((item) => item.documentId === lifterId)
+          const attempts = lifter?.attempts.flatMap((attempt) => {
+            const scenario = strategyScenarios[getScenarioKey(lifterId, attempt.documentId)]
+            const weight = Number(scenario?.weight)
+            return scenario
+              && canEditScenarioAttempt(attempt, details.units)
+              && Number.isFinite(weight)
+              && weight > 0
+              ? [{ attemptId: attempt.documentId, weight, result: scenario.result }]
+              : []
+          }) ?? []
+          return { lifterId, attempts }
+        }),
+      }
+    : null
+  const strategyRequestKey = strategyRequestPayload
+    ? `${selectedCompetition?.id}:${details?.lastSyncedAtUtc}:${JSON.stringify(strategyRequestPayload)}`
+    : ''
+  const strategyRequestBody = strategyRequestPayload
+    ? JSON.stringify(strategyRequestPayload)
+    : ''
+  const strategyResult = strategyResultState?.requestKey === strategyRequestKey
+    ? strategyResultState.result
+    : null
   const today = new Date()
   const todayValue = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
   const sortedCompetitions = [...competitions].sort((left, right) => {
@@ -382,6 +532,72 @@ export default function App() {
     return () => controller.abort()
   }, [selectedCompetition, detailsReloadKey])
 
+  useEffect(() => {
+    if (!selectedCompetition || !strategyRequestKey || !strategyRequestBody) return
+
+    const controller = new AbortController()
+    const calculateStrategy = async () => {
+      setStrategyLoading(true)
+      setStrategyError(null)
+      try {
+        const apiBase = import.meta.env.VITE_API_BASE_URL || 'https://localhost:7251'
+        const response = await fetch(
+          `${apiBase}/api/competitions/${encodeURIComponent(selectedCompetition.id)}/strategy`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: strategyRequestBody,
+            signal: controller.signal,
+          },
+        )
+        const payload = await response.json()
+        if (!response.ok) {
+          throw new Error(payload.error || payload.detail || `Strategy calculation failed: HTTP ${response.status}`)
+        }
+        setStrategyResultState({ requestKey: strategyRequestKey, result: payload })
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return
+        setStrategyError(err instanceof Error ? err.message : 'Strategy calculation failed')
+      } finally {
+        if (!controller.signal.aborted) setStrategyLoading(false)
+      }
+    }
+
+    calculateStrategy()
+    return () => controller.abort()
+  }, [
+    selectedCompetition,
+    strategyRequestKey,
+    strategyRequestBody,
+  ])
+
+  const changePointsSystem = (nextSystem: string) => {
+    try {
+      setPointsSystem(savePointsSystem(window.localStorage, nextSystem))
+      setPointsSystemError(null)
+    } catch {
+      setPointsSystemError('The points-system preference could not be saved in this browser.')
+    }
+  }
+
+  const changeScenario = (
+    lifterId: string,
+    attempt: Attempt,
+    nextResult: '' | 'good' | 'bad',
+    nextWeight?: string,
+  ) => {
+    const key = getScenarioKey(lifterId, attempt.documentId)
+    setStrategyScenarios((current) => {
+      if (nextResult === '') {
+        return updateScenario(current, key, null)
+      }
+      return updateScenario(current, key, {
+        weight: nextWeight ?? current[key]?.weight ?? formatValue(attempt.weight),
+        result: nextResult,
+      })
+    })
+  }
+
   const refreshCompetition = async (fullRefresh: boolean) => {
     if (!selectedCompetition || refreshing) return
     if (fullRefresh && !window.confirm(
@@ -434,6 +650,11 @@ export default function App() {
                 setLifterView('all')
                 setRefreshSummary(null)
                 setRefreshError(null)
+                setSelectedStrategistId('')
+                setSelectedStrategyDivisionKey('')
+                setSelectedOpponentId('')
+                setStrategyOpponentIds([])
+                setStrategyScenarios({})
               }}
             >
               ← All competitions
@@ -512,6 +733,10 @@ export default function App() {
                   </p>
                 )}
               </div>
+              <div className="platform-next-up" role="status">
+                <strong>Next Up</strong>
+                <span>Order unavailable — synchronized fields do not establish a verified queue. No wait estimate is shown.</span>
+              </div>
               {platformDashboardLoading && <div className="state">Loading platform state...</div>}
               {platformDashboardError && (
                 <div className="state error">Platform dashboard error: {platformDashboardError}</div>
@@ -569,6 +794,319 @@ export default function App() {
                 </div>
               )}
             </section>
+            {details && (
+              <section className="strategy-dashboard" aria-labelledby="strategy-heading">
+                <div className="strategy-header">
+                  <div>
+                    <h3 id="strategy-heading">Attempt Strategy</h3>
+                    <p>
+                      Scenarios are browser-only and never update synchronized competition results.
+                    </p>
+                  </div>
+                  <label className="points-system-control">
+                    <span>Points system</span>
+                    <select
+                      value={pointsSystem}
+                      onChange={(event) => changePointsSystem(event.target.value)}
+                    >
+                      {POINTS_SYSTEMS.map((system) => (
+                        <option key={system.id} value={system.id}>{system.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {pointsSystemError && <p className="follow-storage-error" role="alert">{pointsSystemError}</p>}
+                <p className="strategy-limitation">
+                  {POINTS_SYSTEMS.find((system) => system.id === pointsSystem)?.label} scores are unavailable because the original coefficient reference is not in this repository. No coefficients are estimated.
+                </p>
+                <div className="strategy-mode-switch" role="group" aria-label="Strategy comparison mode">
+                  <button
+                    type="button"
+                    className="lifter-view-button"
+                    aria-pressed={strategyMode === 'weight-class'}
+                    onClick={() => setStrategyMode('weight-class')}
+                  >
+                    Weight Class
+                  </button>
+                  <button
+                    type="button"
+                    className="lifter-view-button"
+                    disabled
+                    aria-disabled="true"
+                    title="Requires verified scoring coefficients."
+                  >
+                    Best Overall unavailable
+                  </button>
+                </div>
+                {followedInCompetition.length === 0 ? (
+                  <div className="state empty">
+                    <strong>
+                      {followedLifterIds.length === 0
+                        ? 'Follow a lifter to start a strategy comparison.'
+                        : 'No followed lifters are present in the synchronized data.'}
+                    </strong>
+                    <button
+                      type="button"
+                      className="lifter-view-button"
+                      onClick={() => setLifterView('all')}
+                    >
+                      Browse all lifters
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="strategy-selection">
+                      <label>
+                        <span>Followed athlete</span>
+                        <select
+                          value={activeStrategistId}
+                          onChange={(event) => {
+                            setSelectedStrategistId(event.target.value)
+                            setSelectedOpponentId('')
+                            setStrategyOpponentIds([])
+                            setStrategyScenarios({})
+                            setStrategyError(null)
+                          }}
+                        >
+                          {followedInCompetition.map((lifter) => {
+                            const lifterId = lifter.documentId
+                            return (
+                              <option key={lifterId} value={lifterId}>
+                                {lifter.name || 'Unavailable lifter'}
+                              </option>
+                            )
+                          })}
+                        </select>
+                      </label>
+                      {strategyLifter && (
+                        <label>
+                          <span>Eligible division and weight class</span>
+                          <select
+                            value={activeStrategyDivisionKey}
+                            onChange={(event) => {
+                              setSelectedStrategyDivisionKey(event.target.value)
+                              setSelectedOpponentId('')
+                              setStrategyOpponentIds([])
+                              setStrategyScenarios({})
+                            }}
+                          >
+                            {strategyDivisions.map((division) => (
+                              <option
+                                key={`${division.divisionId}|${division.weightClassId}`}
+                                value={`${division.divisionId}|${division.weightClassId}`}
+                              >
+                                {[
+                                  division.name || division.divisionId,
+                                  division.weightClassName || division.weightClassId,
+                                  division.gender,
+                                  division.rawOrEquipped,
+                                ].filter(Boolean).join(' · ')}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                    </div>
+                    {!strategyLifter && (
+                      <div className="state empty">
+                        A followed lifter is not present in the synchronized data. Refresh the competition or select another followed athlete.
+                      </div>
+                    )}
+                    {strategyLifter && strategyDivisions.length === 0 && (
+                      <div className="state empty">
+                        No division has enough confirmed gender, lift, and weight-class data for a comparison.
+                      </div>
+                    )}
+                    {selectedStrategyDivision && (
+                      <>
+                        <div className="strategy-opponent-controls">
+                          <label>
+                            <span>Opponent in the same division and weight class</span>
+                            <select
+                              value={activeSelectedOpponentId}
+                              onChange={(event) => setSelectedOpponentId(event.target.value)}
+                            >
+                              <option value="">Select an opponent</option>
+                              {eligibleStrategyOpponents.map((lifter) => (
+                                <option key={lifter.documentId} value={lifter.documentId}>
+                                  {lifter.name || lifter.documentId}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            className="lifter-view-button"
+                            disabled={!activeSelectedOpponentId}
+                            onClick={() => {
+                              if (!activeSelectedOpponentId) return
+                              setStrategyOpponentIds((current) => [...current, activeSelectedOpponentId])
+                              setSelectedOpponentId('')
+                            }}
+                          >
+                            Add opponent
+                          </button>
+                        </div>
+                        {activeStrategyOpponentIds.length > 0 && (
+                          <div className="strategy-opponent-list" aria-label="Selected opponents">
+                            {activeStrategyOpponentIds.map((lifterId) => {
+                              const opponent = details.lifters.find((lifter) => lifter.documentId === lifterId)
+                              return (
+                                <span className="strategy-opponent-chip" key={lifterId}>
+                                  {opponent?.name || 'Opponent'}
+                                  <button
+                                    type="button"
+                                    aria-label={`Remove ${opponent?.name || 'opponent'}`}
+                                    onClick={() => {
+                                      setStrategyOpponentIds((current) => current.filter((id) => id !== lifterId))
+                                      setStrategyScenarios((current) =>
+                                        Object.fromEntries(
+                                          Object.entries(current).filter(([key]) => !key.startsWith(`${lifterId}:`)),
+                                        ),
+                                      )
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              )
+                            })}
+                          </div>
+                        )}
+                        <p className="strategy-limitation">
+                          Comparisons require the same division document, weight-class ID, gender, and lifting category—not just the same numerical weight limit. Results are provisional by projected total and do not apply federation tie-break rules.
+                        </p>
+                        <div className="scenario-actions">
+                          <h4>Hypothetical remaining attempts</h4>
+                          <button
+                            type="button"
+                            className="text-button"
+                            disabled={Object.keys(strategyScenarios).length === 0}
+                            onClick={() => setStrategyScenarios(
+                              resetScenarios<{ weight: string; result: 'good' | 'bad' }>(),
+                            )}
+                          >
+                            Reset scenario
+                          </button>
+                        </div>
+                        <p className="follow-storage-note">
+                          Only existing unresolved attempts with a selected source weight can be simulated. Entered weights and good/bad outcomes remain in this page only.
+                        </p>
+                        <div className="scenario-athletes">
+                          {strategyLifters.map((lifter) => {
+                            const name = lifter.name || 'Unnamed lifter'
+                            const editableAttempts = lifter.attempts.filter((attempt) =>
+                              canEditScenarioAttempt(attempt, details.units),
+                            )
+                            return (
+                              <fieldset className="scenario-athlete" key={lifter.documentId}>
+                                <legend>{name}</legend>
+                                {editableAttempts.length === 0 ? (
+                                  <p>No selected unresolved attempts are available to simulate.</p>
+                                ) : (
+                                  editableAttempts.map((attempt) => {
+                                    const key = getScenarioKey(lifter.documentId, attempt.documentId)
+                                    const scenario = strategyScenarios[key]
+                                    const slot = formatValue(attempt.attemptNumber)
+                                    const label = `${attempt.liftName || 'Lift'} attempt ${slot}`
+                                    return (
+                                      <div className="scenario-attempt" key={attempt.documentId}>
+                                        <label>
+                                          <span>{label} · source weight {formatValue(attempt.weight)} {details.units || ''}</span>
+                                          <select
+                                            value={scenario?.result ?? ''}
+                                            onChange={(event) => changeScenario(
+                                              lifter.documentId,
+                                              attempt,
+                                              event.target.value as '' | 'good' | 'bad',
+                                            )}
+                                          >
+                                            <option value="">Baseline: assume selected weight succeeds</option>
+                                            <option value="good">Simulate good</option>
+                                            <option value="bad">Simulate bad</option>
+                                          </select>
+                                        </label>
+                                        {scenario && (
+                                          <label>
+                                            <span>Simulated weight ({details.units || 'source units'})</span>
+                                            <input
+                                              type="number"
+                                              min="0.01"
+                                              step="any"
+                                              value={scenario.weight}
+                                              onChange={(event) => changeScenario(
+                                                lifter.documentId,
+                                                attempt,
+                                                scenario.result,
+                                                event.target.value,
+                                              )}
+                                            />
+                                          </label>
+                                        )}
+                                      </div>
+                                    )
+                                  })
+                                )}
+                              </fieldset>
+                            )
+                          })}
+                        </div>
+                        {strategyRequestKey && strategyLoading && (
+                          <div className="state">Recalculating strategy…</div>
+                        )}
+                        {strategyError && <div className="state error">{strategyError}</div>}
+                        {strategyResult && (
+                          <div className="strategy-results">
+                            <h4>
+                              {selectedStrategyDivision.name || 'Selected division'} · {selectedStrategyDivision.weightClassName || selectedStrategyDivision.weightClassId}
+                            </h4>
+                            <p>Provisional projected ranking · values in kilograms</p>
+                            <div className="attempt-table-wrap">
+                              <table className="strategy-table">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Athlete</th>
+                                    <th scope="col">Bodyweight</th>
+                                    <th scope="col">Best squat</th>
+                                    <th scope="col">Best bench</th>
+                                    <th scope="col">Best deadlift</th>
+                                    <th scope="col">Confirmed sum</th>
+                                    <th scope="col">Current eligible total</th>
+                                    <th scope="col">Baseline projection</th>
+                                    <th scope="col">Scenario projection</th>
+                                    <th scope="col">Provisional place</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {strategyResult.standings.map((standing) => (
+                                    <tr key={standing.lifterId}>
+                                      <th scope="row">{standing.name || standing.lifterId}</th>
+                                      <td>{formatValue(standing.bodyWeight)} {details.units || ''}</td>
+                                      <td>{formatKg(standing.currentPerformance.bestSquatKg)}</td>
+                                      <td>{formatKg(standing.currentPerformance.bestBenchKg)}</td>
+                                      <td>{formatKg(standing.currentPerformance.bestDeadliftKg)}</td>
+                                      <td>{formatKg(standing.currentPerformance.confirmedSuccessfulLiftSumKg)}</td>
+                                      <td>{formatKg(standing.currentPerformance.eligibleCompleteTotalKg)}</td>
+                                      <td>{formatKg(standing.currentPerformance.baselineProjectedEligibleTotalKg)}</td>
+                                      <td>{formatKg(standing.scenarioPerformance.baselineProjectedEligibleTotalKg)}</td>
+                                      <td>
+                                        {standing.provisionalPlace
+                                          ? `${standing.provisionalPlace}${standing.isTied ? ' · tied' : ''}`
+                                          : 'Unavailable'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
             {details && (
               <section className="lifter-dashboard" aria-labelledby="lifter-dashboard-heading">
                 <div className="lifter-dashboard-heading">
@@ -697,6 +1235,23 @@ export default function App() {
                                     </button>
                                   </div>
                                 </div>
+                                {lifterView === 'followed' && (
+                                  <div className="performance-summary">
+                                    <strong>Performance estimates (kg)</strong>
+                                    <span>
+                                      Best S/B/D: {formatKg(lifter.performance.bestSquatKg)} / {formatKg(lifter.performance.bestBenchKg)} / {formatKg(lifter.performance.bestDeadliftKg)}
+                                    </span>
+                                    <span>Confirmed successful-lift sum: {formatKg(lifter.performance.confirmedSuccessfulLiftSumKg)}</span>
+                                    <span>Complete three-lift total: {formatKg(lifter.performance.completeThreeLiftTotalKg)}</span>
+                                    <span>
+                                      Baseline projected three-lift total (pending selected weights assumed good): {formatKg(lifter.performance.baselineProjectedThreeLiftTotalKg)}
+                                    </span>
+                                    <span>
+                                      {POINTS_SYSTEMS.find((system) => system.id === pointsSystem)?.label} score: unavailable until the verified coefficient reference is supplied.
+                                    </span>
+                                    <span>Next known attempt: order unavailable; live queue order is unverified.</span>
+                                  </div>
+                                )}
                                 <div className="attempt-table-wrap">
                                   <table className="attempt-table">
                                     <thead>
