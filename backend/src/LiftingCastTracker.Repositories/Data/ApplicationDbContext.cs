@@ -10,6 +10,8 @@ public class ApplicationDbContext : DbContext
     }
 
     public DbSet<Competition> Competitions => Set<Competition>();
+    public DbSet<CompetitionDocument> CompetitionDocuments => Set<CompetitionDocument>();
+    public DbSet<CompetitionSyncState> CompetitionSyncStates => Set<CompetitionSyncState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -43,6 +45,63 @@ public class ApplicationDbContext : DbContext
                 .HasDefaultValue(false);
 
             entity.Ignore(e => e.ParsedDate);
+        });
+
+        modelBuilder.Entity<CompetitionDocument>(entity =>
+        {
+            entity.ToTable("competition_documents");
+
+            entity.HasKey(document => new { document.CompetitionId, document.DocumentId });
+
+            entity.Property(document => document.CompetitionId)
+                .HasColumnName("competition_id")
+                .IsRequired();
+
+            entity.Property(document => document.DocumentId)
+                .HasColumnName("document_id")
+                .IsRequired();
+
+            entity.Property(document => document.Revision)
+                .HasColumnName("revision")
+                .IsRequired();
+
+            entity.Property(document => document.DocumentDataJson)
+                .HasColumnName("document_data")
+                .HasColumnType("jsonb")
+                .IsRequired();
+
+            entity.Property(document => document.LastSyncedAt)
+                .HasColumnName("last_synced_at")
+                .IsRequired();
+
+            entity.HasOne<Competition>()
+                .WithMany()
+                .HasForeignKey(document => document.CompetitionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CompetitionSyncState>(entity =>
+        {
+            entity.ToTable("competition_sync_state");
+
+            entity.HasKey(state => state.CompetitionId);
+
+            entity.Property(state => state.CompetitionId)
+                .HasColumnName("competition_id")
+                .IsRequired();
+
+            entity.Property(state => state.LastSequence)
+                .HasColumnName("last_sequence")
+                .IsRequired();
+
+            entity.Property(state => state.LastSyncedAt)
+                .HasColumnName("last_synced_at")
+                .IsRequired();
+
+            entity.HasOne<Competition>()
+                .WithMany()
+                .HasForeignKey(state => state.CompetitionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

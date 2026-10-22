@@ -55,6 +55,73 @@ namespace LiftingCastTracker.Repositories.Migrations
 
                     b.ToTable("competitions", (string)null);
                 });
+
+            modelBuilder.Entity("LiftingCastTracker.Services.Models.CompetitionDocument", b =>
+                {
+                    b.Property<string>("CompetitionId")
+                        .HasColumnType("text")
+                        .HasColumnName("competition_id");
+
+                    b.Property<string>("DocumentId")
+                        .HasColumnType("text")
+                        .HasColumnName("document_id");
+
+                    b.Property<string>("DocumentDataJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("document_data");
+
+                    b.Property<DateTimeOffset>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_synced_at");
+
+                    b.Property<string>("Revision")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("revision");
+
+                    b.HasKey("CompetitionId", "DocumentId");
+
+                    b.ToTable("competition_documents", (string)null);
+                });
+
+            modelBuilder.Entity("LiftingCastTracker.Services.Models.CompetitionSyncState", b =>
+                {
+                    b.Property<string>("CompetitionId")
+                        .HasColumnType("text")
+                        .HasColumnName("competition_id");
+
+                    b.Property<string>("LastSequence")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("last_sequence");
+
+                    b.Property<DateTimeOffset>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_synced_at");
+
+                    b.HasKey("CompetitionId");
+
+                    b.ToTable("competition_sync_state", (string)null);
+                });
+
+            modelBuilder.Entity("LiftingCastTracker.Services.Models.CompetitionDocument", b =>
+                {
+                    b.HasOne("LiftingCastTracker.Services.Models.Competition", null)
+                        .WithMany()
+                        .HasForeignKey("CompetitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LiftingCastTracker.Services.Models.CompetitionSyncState", b =>
+                {
+                    b.HasOne("LiftingCastTracker.Services.Models.Competition", null)
+                        .WithMany()
+                        .HasForeignKey("CompetitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
 #pragma warning restore 612, 618
         }
     }

@@ -5,6 +5,7 @@ using LiftingCastTracker.Services.Import;
 using LiftingCastTracker.Services.Models;
 using LiftingCastTracker.Services.Parsing;
 using LiftingCastTracker.Services.Repositories;
+using LiftingCastTracker.Services.Sync;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
@@ -19,7 +20,9 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 builder.Services.AddScoped<ICompetitionRepository, CompetitionRepository>();
+builder.Services.AddScoped<ICompetitionSyncRepository, CompetitionSyncRepository>();
 builder.Services.AddScoped<CompetitionImportService>();
+builder.Services.AddScoped<CompetitionSyncService>();
 var couchDbBaseUrl = builder.Configuration["LiftingCast:CouchDbBaseUrl"]
     ?? "https://couchdb.liftingcast.com/";
 if (!Uri.TryCreate(couchDbBaseUrl, UriKind.Absolute, out var couchDbBaseUri)
@@ -88,6 +91,7 @@ if (app.Environment.IsDevelopment())
         "/api/development/competitions/{id}/snapshot",
         async (
             string id,
+            string? documentId,
             ILiftingCastCompetitionClient couchDbClient,
             CancellationToken cancellationToken) =>
         {
@@ -96,8 +100,34 @@ if (app.Environment.IsDevelopment())
                 return Results.BadRequest(new { error = "Invalid competition ID." });
             }
 
+            if (documentId is not null && !CouchDbDocumentIdValidator.IsValid(documentId))
+            {
+                return Results.BadRequest(new { error = "Invalid CouchDB document ID." });
+            }
+
             try
             {
+                if (documentId is not null)
+                {
+                    var documentResponse = await couchDbClient.GetDocumentAsync(
+                        id,
+                        documentId,
+                        cancellationToken);
+                    if (documentResponse.StatusCode is < 200 or >= 300)
+                    {
+                        return Results.Problem(
+                            detail: $"CouchDB returned HTTP {documentResponse.StatusCode}.",
+                            statusCode: StatusCodes.Status502BadGateway);
+                    }
+
+                    var preview = CouchDbResponseParser.ParseDocumentPreview(
+                        id,
+                        documentId,
+                        documentResponse.Body,
+                        DateTimeOffset.UtcNow);
+                    return Results.Ok(preview);
+                }
+
                 var response = await couchDbClient.GetSnapshotAsync(id, cancellationToken);
                 if (response.StatusCode is < 200 or >= 300)
                 {
@@ -116,6 +146,12 @@ if (app.Environment.IsDevelopment())
             {
                 return Results.Problem(
                     detail: "CouchDB returned a malformed snapshot response.",
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+            catch (InvalidDataException)
+            {
+                return Results.Problem(
+                    detail: "CouchDB response exceeded the inspection size limit.",
                     statusCode: StatusCodes.Status502BadGateway);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -153,6 +189,7 @@ if (app.Environment.IsDevelopment())
                     var diagnostic = CouchDbResponseParser.ParseChanges(
                         id,
                         response.StatusCode,
+                        "now",
                         response.Body,
                         DateTimeOffset.UtcNow);
                     return Results.Ok(diagnostic);
@@ -161,12 +198,20 @@ if (app.Environment.IsDevelopment())
                 {
                     return Results.Ok(new CouchDbChangesDiagnostic(
                         id,
+                        "now",
                         response.StatusCode,
                         false,
                         null,
+                        [],
                         null,
                         DateTimeOffset.UtcNow));
                 }
+            }
+            catch (InvalidDataException)
+            {
+                return Results.Problem(
+                    detail: "CouchDB response exceeded the inspection size limit.",
+                    statusCode: StatusCodes.Status502BadGateway);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -182,6 +227,134 @@ if (app.Environment.IsDevelopment())
             }
         })
         .WithName("CheckCompetitionChanges");
+
+    app.MapPost(
+        "/api/development/competitions/{id}/changes/checkpoint",
+        async (
+            string id,
+            CouchDbChangesRequest request,
+            ILiftingCastCompetitionClient couchDbClient,
+            CancellationToken cancellationToken) =>
+        {
+            if (!CompetitionIdValidator.IsValid(id))
+            {
+                return Results.BadRequest(new { error = "Invalid competition ID." });
+            }
+
+            if (!CouchDbChangesRequestValidator.IsValid(request.Since, request.Limit))
+            {
+                return Results.BadRequest(new
+                {
+                    error = $"A non-empty checkpoint of at most {CouchDbChangesRequestValidator.MaximumCheckpointLength} characters and a limit from 1 to {CouchDbChangesRequestValidator.MaximumLimit} are required."
+                });
+            }
+
+            try
+            {
+                var response = await couchDbClient.GetChangesSinceAsync(
+                    id,
+                    request.Since!,
+                    request.Limit,
+                    cancellationToken);
+                if (response.StatusCode is < 200 or >= 300)
+                {
+                    return Results.Problem(
+                        detail: $"CouchDB returned HTTP {response.StatusCode}.",
+                        statusCode: StatusCodes.Status502BadGateway);
+                }
+
+                var diagnostic = CouchDbResponseParser.ParseChanges(
+                    id,
+                    response.StatusCode,
+                    request.Since!,
+                    response.Body,
+                    DateTimeOffset.UtcNow);
+                return Results.Ok(diagnostic);
+            }
+            catch (JsonException)
+            {
+                return Results.Problem(
+                    detail: "CouchDB returned a malformed changes response.",
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+            catch (InvalidDataException)
+            {
+                return Results.Problem(
+                    detail: "CouchDB response exceeded the inspection size limit.",
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return Results.Problem(
+                    detail: "The CouchDB changes request timed out.",
+                    statusCode: StatusCodes.Status504GatewayTimeout);
+            }
+            catch (HttpRequestException)
+            {
+                return Results.Problem(
+                    detail: "The CouchDB changes request failed.",
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+        })
+        .WithName("GetCompetitionChangesSinceCheckpoint");
+
+    app.MapPost(
+        "/api/development/competitions/{id}/sync",
+        async (
+            string id,
+            CompetitionSyncService syncService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!CompetitionIdValidator.IsValid(id))
+            {
+                return Results.BadRequest(new { error = "Invalid competition ID." });
+            }
+
+            try
+            {
+                var result = await syncService.SyncAsync(id, cancellationToken);
+                return Results.Ok(result);
+            }
+            catch (CompetitionNotFoundException)
+            {
+                return Results.NotFound(new { error = "Competition not found in the local directory." });
+            }
+            catch (CompetitionSyncAlreadyRunningException)
+            {
+                return Results.Conflict(new { error = "A synchronization for this competition is already running." });
+            }
+            catch (CouchDbSyncException exception)
+            {
+                return Results.Problem(
+                    detail: exception.Message,
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+            catch (JsonException)
+            {
+                return Results.Problem(
+                    detail: "CouchDB returned an incomplete or malformed synchronization response.",
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+            catch (InvalidDataException)
+            {
+                return Results.Problem(
+                    detail: "CouchDB response exceeded the synchronization size limit.",
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return Results.Problem(
+                    detail: "The CouchDB synchronization request timed out.",
+                    statusCode: StatusCodes.Status504GatewayTimeout);
+            }
+            catch (HttpRequestException)
+            {
+                return Results.Problem(
+                    detail: "The CouchDB synchronization request failed.",
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+        })
+        .WithName("SynchronizeCompetition");
 }
 
 if (!app.Environment.IsDevelopment())
@@ -200,5 +373,54 @@ app.MapGet("/api/competitions", async (ICompetitionRepository repository) =>
 })
     .WithName("GetCompetitions")
     .WithOpenApi();
+
+app.MapGet(
+    "/api/competitions/{id}/documents",
+    async (
+        string id,
+        int? offset,
+        int? limit,
+        ICompetitionRepository competitionRepository,
+        ICompetitionSyncRepository syncRepository,
+        CancellationToken cancellationToken) =>
+    {
+        var pageOffset = offset ?? 0;
+        var pageLimit = limit ?? 25;
+        if (!CompetitionIdValidator.IsValid(id))
+        {
+            return Results.BadRequest(new { error = "Invalid competition ID." });
+        }
+
+        if (pageOffset < 0 || pageLimit is < 1 or > 50)
+        {
+            return Results.BadRequest(new { error = "Offset must be non-negative and limit must be between 1 and 50." });
+        }
+
+        if (await competitionRepository.GetByIdAsync(id) is null)
+        {
+            return Results.NotFound(new { error = "Competition not found in the local directory." });
+        }
+
+        var (totalDocuments, documents) = await syncRepository.GetDocumentsAsync(
+            id,
+            pageOffset,
+            pageLimit,
+            cancellationToken);
+        var summaries = documents
+            .Select(document => new SynchronizedDocumentSummary(
+                document.DocumentId,
+                document.Revision,
+                CouchDbSyncResponseParser.GetFieldSummary(document.DocumentDataJson),
+                document.LastSyncedAt))
+            .ToArray();
+
+        return Results.Ok(new SynchronizedDocumentsPage(
+            id,
+            totalDocuments,
+            pageOffset,
+            pageLimit,
+            summaries));
+    })
+    .WithName("GetSynchronizedCompetitionDocuments");
 
 app.Run();

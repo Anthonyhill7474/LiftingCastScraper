@@ -128,6 +128,17 @@ LiftingCast is an external service we do not control.
 - Future synchronization must support cancellation, timeouts and error handling.
 - Do not assume CouchDB `_changes` is available until verified.
 
+## Competition Data Modelling
+
+- The app must support upcoming, live and completed competitions.
+- `m80in4tnzkgx` is a completed competition used for schema investigation.
+- `mnk13ga524h1` is an upcoming competition used for comparison.
+- These identifiers must never be hardcoded into production logic.
+- Completed-meet data must not be treated as proof of live-meet behaviour.
+- Handle missing, null and incomplete competition fields.
+- Read `docs/couchdb-investigation.md` when implementing CouchDB-related features.
+- Avoid speculative domain models and unnecessary normalization.
+
 ## Development Workflow
 
 Before changing code:

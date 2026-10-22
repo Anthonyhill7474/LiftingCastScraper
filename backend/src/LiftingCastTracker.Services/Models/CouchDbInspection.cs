@@ -8,19 +8,111 @@ public sealed record CouchDbSnapshotSummary(
     string CompetitionId,
     long TotalDocuments,
     JsonElement? UpdateSequence,
-    IReadOnlyList<CouchDbDocumentSample> SampleDocuments,
+    int InspectedDocuments,
+    IReadOnlyList<CouchDbDocumentStructure> Structures,
     DateTimeOffset RetrievedAtUtc);
 
-public sealed record CouchDbDocumentSample(
-    string? Id,
-    IReadOnlyList<CouchDbPropertySummary> Properties);
+public sealed record CouchDbDocumentStructure(
+    int Occurrences,
+    IReadOnlyList<string> SampleDocumentIds,
+    IReadOnlyList<CouchDbPropertySummary> Fields,
+    bool FieldsTruncated);
 
 public sealed record CouchDbPropertySummary(string Name, string Type);
 
+public sealed record CouchDbJsonNodePreview(
+    string Name,
+    string Type,
+    IReadOnlyList<CouchDbJsonNodePreview> Children,
+    bool IsTruncated);
+
+public sealed record CouchDbDocumentPreview(
+    string CompetitionId,
+    string DocumentId,
+    IReadOnlyList<CouchDbJsonNodePreview> Fields,
+    DateTimeOffset RetrievedAtUtc,
+    bool FieldsTruncated);
+
+public sealed record CouchDbChangesRequest(string? Since, int Limit = 10);
+
+public sealed record CouchDbChangedDocument(
+    string Id,
+    IReadOnlyList<string> Revisions,
+    bool Deleted);
+
 public sealed record CouchDbChangesDiagnostic(
     string CompetitionId,
+    string SinceSequence,
     int HttpStatusCode,
     bool IsValidChangesFeed,
     int? ResultCount,
+    IReadOnlyList<CouchDbChangedDocument> Changes,
     JsonElement? LastSequence,
     DateTimeOffset CheckedAtUtc);
+
+public sealed class CompetitionDocument
+{
+    public string CompetitionId { get; set; } = null!;
+    public string DocumentId { get; set; } = null!;
+    public string Revision { get; set; } = null!;
+    public string DocumentDataJson { get; set; } = null!;
+    public DateTimeOffset LastSyncedAt { get; set; }
+}
+
+public sealed class CompetitionSyncState
+{
+    public string CompetitionId { get; set; } = null!;
+    public string LastSequence { get; set; } = null!;
+    public DateTimeOffset LastSyncedAt { get; set; }
+}
+
+public sealed record CouchDbSyncDocument(string Id, string Revision, string DataJson);
+
+public sealed record CouchDbSyncChange(string Id, bool Deleted, CouchDbSyncDocument? Document);
+
+public sealed record CouchDbSyncSnapshot(
+    string LastSequence,
+    IReadOnlyList<CouchDbSyncDocument> Documents);
+
+public sealed record CouchDbSyncBatch(
+    string LastSequence,
+    IReadOnlyList<CouchDbSyncChange> Changes,
+    int ResultCount,
+    long? Pending);
+
+public sealed record CompetitionSyncCounts(int Inserted, int Updated, int Unchanged, int Deleted)
+{
+    public static CompetitionSyncCounts operator +(
+        CompetitionSyncCounts left,
+        CompetitionSyncCounts right) =>
+        new(
+            left.Inserted + right.Inserted,
+            left.Updated + right.Updated,
+            left.Unchanged + right.Unchanged,
+            left.Deleted + right.Deleted);
+}
+
+public sealed record CompetitionSyncResult(
+    string CompetitionId,
+    bool InitialSync,
+    int Inserted,
+    int Updated,
+    int Unchanged,
+    int Deleted,
+    int Batches,
+    string LastSequence,
+    bool HasMore,
+    DateTimeOffset SyncedAtUtc);
+
+public sealed record SynchronizedDocumentSummary(
+    string DocumentId,
+    string Revision,
+    IReadOnlyList<CouchDbPropertySummary> Fields,
+    DateTimeOffset LastSyncedAt);
+
+public sealed record SynchronizedDocumentsPage(
+    string CompetitionId,
+    int TotalDocuments,
+    int Offset,
+    int Limit,
+    IReadOnlyList<SynchronizedDocumentSummary> Documents);

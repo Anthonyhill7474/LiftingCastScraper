@@ -96,10 +96,7 @@ cd backend/src/LiftingCastTracker.Controllers
 dotnet ef database update --project ../LiftingCastTracker.Repositories --startup-project .
 ```
 
-This command will:
-1. Read the migration from `Migrations/20261021141813_InitialCreate.cs`
-2. Connect to PostgreSQL using the configured connection string
-3. Create the `competitions` table and schema
+This applies all reviewed migrations, including the competition synchronization tables described below.
 
 ### Run the Backend
 
@@ -242,11 +239,80 @@ curl -k https://localhost:7251/api/development/competitions/mnk13ga524h1/snapsho
 curl -k https://localhost:7251/api/development/competitions/mnk13ga524h1/changes/check
 ```
 
-The snapshot response contains the competition ID, CouchDB `total_rows`, `update_seq` when available, up to three document IDs, each sample document's first ten top-level property names and JSON types, and the retrieval time. It does not return document values. The endpoint requests only three rows to keep the inspection bounded.
+The snapshot response contains the competition ID, CouchDB `total_rows`, `update_seq`, the number of ordinary documents inspected, and up to five recurring top-level field structures. Each structure includes an occurrence count from the inspected sample, up to three document IDs, and up to ten field names/types. CouchDB design documents are excluded. The request is limited to 25 rows and responses to 1 MiB; document values are not returned.
 
-The changes diagnostic makes one normal feed request with `since=now` and `limit=1`. Its response includes the upstream HTTP status, whether the response has a valid changes-feed shape, the result count when present, and `last_seq` when present. An upstream HTTP error is reported in the JSON response with `isValidChangesFeed: false`; network errors and timeouts return gateway errors.
+To inspect a specific document, choose one of its IDs from the snapshot and explicitly request its sanitized structure preview. Use `--data-urlencode` so IDs containing reserved URL characters are encoded correctly:
 
-These endpoints do not run automatically, write to CouchDB, or persist competition documents. The actual document structure and `_changes` accessibility have not yet been verified; the snapshot reports structure only, and the diagnostic does not establish incremental synchronization behavior.
+```bash
+curl -k --get \
+  --data-urlencode 'documentId=REPLACE_WITH_DOCUMENT_ID' \
+  https://localhost:7251/api/development/competitions/mnk13ga524h1/snapshot
+```
+
+The preview reports at most ten properties per object, five array elements, and four levels of JSON nodes. It includes names and JSON types only, never scalar values, and marks truncated structures.
+
+To check incremental changes, copy the complete `update_seq` value from the snapshot response. The earlier changes diagnostic checks `since=now`; the checkpoint endpoint uses a POST body so the opaque sequence is not placed in the route:
+
+```bash
+curl -k -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"since":"PASTE_THE_COMPLETE_UPDATE_SEQUENCE_HERE","limit":10}' \
+  https://localhost:7251/api/development/competitions/mnk13ga524h1/changes/checkpoint
+```
+
+The checkpoint is sent unchanged as the `_changes` `since` parameter, URL-encoded by the client. A successful response includes the original checkpoint, upstream status, changed document IDs, revisions, deletion flags, and the returned `last_seq`; document bodies are not included. The limit must be between 1 and 25, and checkpoint strings are limited to 2,048 characters. CouchDB errors are returned as gateway errors; the `/changes/check` probe instead reports the upstream status and feed-shape result in its response.
+
+No raw inspection responses are logged. All diagnostic requests are explicit and Development-only; none runs at startup or on a schedule. For `mnk13ga524h1`, the observed directory has 327 documents, the snapshot update sequence began with `377-`, top-level fields included `_id`, `_rev`, `liftName`, `attemptNumber`, `lifterId`, `changes`, and `createDate`, and `_changes?since=now` returned HTTP 200 with no rows.
+
+## Manually Synchronizing Competition Documents
+
+After the competition has been imported into the local `competitions` table and the synchronization migration has been applied, run a manual synchronization from a Development backend:
+
+```bash
+curl -k -X POST https://localhost:7251/api/development/competitions/COMPETITION_ID/sync
+```
+
+The first request fetches `_all_docs?update_seq=true&include_docs=true`; later requests use `_changes?feed=normal&since=...&include_docs=true` with the exact saved checkpoint. Each changes batch and its returned checkpoint commit together. A run processes at most 20 batches of 25 changes (up to 500 changes); if `hasMore` is true, call the endpoint again to continue from the saved checkpoint. Empty batches still record the returned sequence. Concurrent sync calls for one competition return HTTP 409. This endpoint is registered only in Development and never runs automatically.
+
+Before persistence, only selected tracking and competition-configuration fields are retained. Design documents, CouchDB `changes` history, payment identifiers, dates of birth, contact details and other unneeded profile fields are excluded. The source response is bounded to 10 MiB and is not logged. The stored document data is JSONB; revisions and opaque checkpoints are stored separately.
+
+Inspect the local synchronized-document page without contacting CouchDB:
+
+```bash
+curl -k 'https://localhost:7251/api/competitions/COMPETITION_ID/documents?offset=0&limit=25'
+```
+
+The response includes document IDs, revisions and sanitized top-level field names/types only, with at most 50 documents per page. It does not return document values or raw JSON. Use `offset` to view subsequent pages.
+
+To verify the local state and checkpoint in DBeaver without exposing document values, query:
+
+```sql
+SELECT competition_id, document_id, revision, last_synced_at
+FROM competition_documents
+WHERE competition_id = 'YOUR_IMPORTED_COMPETITION_ID'
+ORDER BY document_id
+LIMIT 50;
+
+SELECT competition_id, last_sequence, last_synced_at
+FROM competition_sync_state
+WHERE competition_id = 'YOUR_IMPORTED_COMPETITION_ID';
+```
+
+The synchronization migration has been generated but is not applied automatically. Review `backend/src/LiftingCastTracker.Repositories/Migrations/*_AddCompetitionSynchronization.cs` and, if desired, generate its SQL script:
+
+```bash
+cd backend/src/LiftingCastTracker.Controllers
+dotnet ef migrations script --project ../LiftingCastTracker.Repositories --startup-project .
+```
+
+Apply the migration only after reviewing it:
+
+```bash
+cd backend/src/LiftingCastTracker.Controllers
+dotnet ef database update --project ../LiftingCastTracker.Repositories --startup-project .
+```
+
+This milestone stores the current allowlisted document state, not a full document archive. A capped run may require another manual call; no automatic retry, schedule, polling, relational athlete/attempt model, or result calculation is implemented. CouchDB checkpoint behavior has not been verified against a newly captured live sequence as part of build or test runs.
 
 ## Development Workflow
 

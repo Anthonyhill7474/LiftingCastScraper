@@ -8,7 +8,7 @@ Its eventual purpose is to discover competitions, synchronize competition data, 
 
 The application is being developed incrementally.
 
-The current milestone includes manually importing competition directory JSON and displaying stored competition metadata. It is not real-time competition tracking.
+The current application supports manually importing competition directory JSON, displaying stored competition metadata, and manually synchronizing sanitized current documents for an individual competition. Synchronization is Development-triggered only; this is not real-time or automatic tracking.
 
 ## Technology
 
@@ -69,7 +69,9 @@ Responsibilities:
 Initial endpoints:
 - `GET /api/health`
 - `GET /api/competitions`
+- `GET /api/competitions/{id}/documents`
 - Development-only `POST /api/development/competitions/import`
+- Development-only `POST /api/development/competitions/{id}/sync`
 
 ### Services
 
@@ -79,6 +81,7 @@ Responsibilities:
 - Competition model
 - Business logic
 - Competition directory JSON parsing and import decisions
+- Manual synchronization orchestration and response sanitization
 - Repository interfaces
 - Future external data source interfaces
 - Date parsing where needed
@@ -94,7 +97,7 @@ Responsibilities:
 - Entity configurations where needed
 - EF Core migrations
 - Repository implementations
-- Future CouchDB HTTP client
+- Read-only CouchDB HTTP client
 
 Repositories depends on Services.
 
@@ -123,21 +126,18 @@ Use snake_case naming in PostgreSQL.
 
 ### Initial Data Model
 
-Start with a single Competition entity representing metadata from LiftingCast.
+The `competitions` table stores directory metadata from LiftingCast. Synchronization adds only two small tables:
 
-Required source fields:
-- `_id`
-- `name`
-- `date`
-- `dateFormat`
-- `createDate`
-- `showOnHomePage`
+- `competition_documents` stores the selected current fields as `jsonb`, keyed by competition ID and CouchDB document ID; revision and synchronization time are separate columns.
+- `competition_sync_state` stores the last successfully committed opaque CouchDB sequence and synchronization time, keyed by competition ID.
 
-Preserve the original LiftingCast competition ID.
+The document table is not normalized into lifter, attempt, division or platform tables. Each document batch and its checkpoint are saved atomically. Design documents and unneeded personal/payment fields are excluded before persistence.
+
+Preserve the original LiftingCast competition ID and CouchDB document IDs.
 
 Some optional fields may be missing or empty.
 
-Do not create tables for athletes, attempts, flights, platforms or historical synchronization until the relevant data structures have been inspected.
+Do not normalize athletes, attempts, flights, platforms or historical changes until the relevant data structures and product requirements are verified.
 
 ## Frontend
 
@@ -177,6 +177,41 @@ The competition creation timestamp does not establish the meet's time zone.
 
 A competition may exist even when `showOnHomePage` is false or absent.
 
+## Competition Lifecycle
+
+The application is intended to support upcoming, live and completed competitions.
+
+The completed competition `m80in4tnzkgx` is used as a reference dataset for understanding CouchDB document structures.
+
+It is not a hardcoded target competition.
+
+### Upcoming competitions
+
+May have registered competitors, configured divisions and placeholder attempts. Many result fields may be absent or incomplete.
+
+### Live competitions
+
+Competition documents can change as attempts are submitted, judged or edited.
+
+Future synchronization should retrieve changed documents efficiently and maintain current competition state.
+
+### Completed competitions
+
+Useful for understanding populated result structures and historical changes.
+
+They do not establish the exact behaviour of live platform state, active clocks or attempt scheduling.
+
+### Architecture Requirements
+
+- Support multiple competition IDs.
+- Never hardcode sample competition IDs in production logic.
+- Account for missing and incomplete attempt data.
+- Keep live synchronization independent of the frontend.
+- Do not assume every competition follows exactly the same document structure.
+- Use confirmed observations when designing permanent storage and business logic.
+
+See `docs/couchdb-investigation.md` for findings from the completed competition.
+
 ### Competition Databases
 
 A discovered competition database follows an observed CouchDB URL structure:
@@ -185,15 +220,15 @@ A discovered competition database follows an observed CouchDB URL structure:
 https://couchdb.liftingcast.com/{meetId}_readonly/
 ```
 
-An observed snapshot endpoint is:
+The manually triggered initial snapshot endpoint is:
 
 ```text
 _all_docs?conflicts=true&update_seq=true&include_docs=true
 ```
 
-CouchDB supports a `_changes` mechanism generally, but access and behaviour on LiftingCast must be verified.
+CouchDB `_changes` returned HTTP 200 with `since=now` for the observed competition, with no rows. Manual synchronization uses bounded `feed=normal` batches with `include_docs=true`, preserves the complete `last_seq` value as an opaque string, and commits each batch with its checkpoint. A run processes at most 20 batches of 25 changes; it reports `hasMore` when another manual call is needed. Responses are size-bounded, documents are sanitized, and design documents are not stored.
 
-Do not implement automatic directory polling or meet data synchronization.
+Do not implement automatic directory polling or meet synchronization yet.
 
 ## Competition Discovery Milestone
 
@@ -203,23 +238,24 @@ The original competition date and date format remain stored as source metadata. 
 
 ## Competition Data Inspection Milestone
 
-The Repositories project has a read-only CouchDB HTTP client configured by `LiftingCast:CouchDbBaseUrl`. Development-only snapshot and changes diagnostic endpoints make one request only when manually called. Snapshot parsing returns document counts, update sequence, and bounded document-shape samples without returning document values. No competition documents are persisted, and `_changes` support remains unverified.
+The Repositories project has a read-only CouchDB HTTP client configured by `LiftingCast:CouchDbBaseUrl`. Development-only endpoints support bounded document-structure sampling, an explicitly selected sanitized document preview, the `since=now` changes check, and a manually supplied opaque checkpoint. These inspection endpoints do not persist their responses.
+
+## Manual Competition Synchronization
+
+The Development-only `POST /api/development/competitions/{id}/sync` endpoint verifies the competition exists in the local directory. If no sync state exists, it fetches a full `_all_docs` snapshot and saves sanitized documents with the snapshot sequence. Later calls process bounded `_changes` batches, applying additions, updates and deletions idempotently. Every successful batch and its `last_seq` checkpoint commit in one PostgreSQL transaction. A per-competition in-process lock prevents overlapping calls in one application instance.
+
+`GET /api/competitions/{id}/documents` reads only the local PostgreSQL state and returns a bounded summary of document IDs, revisions, and sanitized top-level field names/types. It does not contact CouchDB. No raw responses or complete history arrays are stored.
 
 ## Future Synchronization
 
 Potential future work:
 
-1. Automate competition directory discovery and metadata refresh.
-2. Read individual competition documents.
-3. Investigate incremental CouchDB changes.
-4. Store synchronization checkpoints.
-5. Detect active competitions.
-6. Poll active competitions at a configurable frequency.
-7. Expose synchronized information through our own API.
+1. Verify checkpoint behavior and synchronization limits with additional manually captured competition data.
+2. Automate competition directory discovery and metadata refresh.
+3. Detect active competitions and poll at an explicitly approved configurable frequency.
+4. Add live UI or derived results only after attempt and scoring semantics are verified.
 
-An initial target is up to 20 active meets at five-second intervals, subject to owner approval and performance testing.
-
-Polling should avoid unnecessarily downloading complete meet data when incremental synchronization is available.
+Polling should avoid unnecessarily downloading complete meet data when incremental synchronization is available. No polling is currently configured.
 
 ## Initial Milestone — Scaffolding
 
