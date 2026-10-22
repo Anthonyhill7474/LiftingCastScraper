@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using LiftingCastTracker.Services.Parsing;
 
 namespace LiftingCastTracker.Services.Models;
@@ -10,5 +11,9 @@ public class Competition
     public string? DateFormat { get; set; }
     public DateTime? CreateDate { get; set; }
     public bool ShowOnHomePage { get; set; }
+
+    [JsonIgnore]
+    public bool AutomaticSyncEnabled { get; set; }
+
     public DateOnly? ParsedDate => CompetitionDateParser.Parse(Date, DateFormat);
 }

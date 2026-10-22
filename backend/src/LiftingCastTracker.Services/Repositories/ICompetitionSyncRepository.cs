@@ -4,6 +4,9 @@ namespace LiftingCastTracker.Services.Repositories;
 
 public interface ICompetitionSyncRepository
 {
+    Task<IReadOnlyList<AutomaticSyncCandidate>> GetAutomaticSyncCandidatesAsync(
+        CancellationToken cancellationToken = default);
+
     Task<CompetitionSyncState?> GetStateAsync(
         string competitionId,
         CancellationToken cancellationToken = default);

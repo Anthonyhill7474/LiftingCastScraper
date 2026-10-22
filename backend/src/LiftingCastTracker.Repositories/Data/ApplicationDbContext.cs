@@ -44,6 +44,10 @@ public class ApplicationDbContext : DbContext
                 .HasColumnName("show_on_home_page")
                 .HasDefaultValue(false);
 
+            entity.Property(e => e.AutomaticSyncEnabled)
+                .HasColumnName("automatic_sync_enabled")
+                .HasDefaultValue(false);
+
             entity.Ignore(e => e.ParsedDate);
         });
 

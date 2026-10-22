@@ -1,6 +1,7 @@
 using LiftingCastTracker.Repositories.Data;
 using LiftingCastTracker.Repositories.ExternalData;
 using LiftingCastTracker.Repositories.Implementations;
+using LiftingCastTracker.Controllers.BackgroundServices;
 using LiftingCastTracker.Services.Import;
 using LiftingCastTracker.Services.Models;
 using LiftingCastTracker.Services.Parsing;
@@ -23,6 +24,20 @@ builder.Services.AddScoped<ICompetitionRepository, CompetitionRepository>();
 builder.Services.AddScoped<ICompetitionSyncRepository, CompetitionSyncRepository>();
 builder.Services.AddScoped<CompetitionImportService>();
 builder.Services.AddScoped<CompetitionSyncService>();
+builder.Services.AddOptions<AutomaticSyncOptions>()
+    .Bind(builder.Configuration.GetSection(AutomaticSyncOptions.SectionName))
+    .Validate(options => options.IntervalSeconds >= 30, "AutomaticSync:IntervalSeconds must be at least 30.")
+    .Validate(
+        options => options.MaxConcurrentCompetitions is >= 1 and <= AutomaticSyncOptions.MaximumConcurrentCompetitions,
+        $"AutomaticSync:MaxConcurrentCompetitions must be between 1 and {AutomaticSyncOptions.MaximumConcurrentCompetitions}.")
+    .Validate(
+        options => options.MaxActiveCompetitionsPerRun is >= 1 and <= AutomaticSyncOptions.MaximumActiveCompetitionsPerRun,
+        $"AutomaticSync:MaxActiveCompetitionsPerRun must be between 1 and {AutomaticSyncOptions.MaximumActiveCompetitionsPerRun}.")
+    .ValidateOnStart();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<CompetitionSyncBackgroundService>();
+builder.Services.AddHostedService(
+    services => services.GetRequiredService<CompetitionSyncBackgroundService>());
 var couchDbBaseUrl = builder.Configuration["LiftingCast:CouchDbBaseUrl"]
     ?? "https://couchdb.liftingcast.com/";
 if (!Uri.TryCreate(couchDbBaseUrl, UriKind.Absolute, out var couchDbBaseUri)
@@ -58,6 +73,21 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
     app.UseCors("LocalVite");
+
+    app.MapGet("/api/development/status", () => Results.Ok(new
+    {
+        environment = "Development",
+        isDevelopment = true
+    }))
+        .WithName("GetDevelopmentStatus");
+
+    app.MapGet(
+        "/api/development/automatic-sync/status",
+        async (
+            CompetitionSyncBackgroundService syncWorker,
+            CancellationToken cancellationToken) =>
+                Results.Ok(await syncWorker.GetStatusAsync(cancellationToken)))
+        .WithName("GetAutomaticSyncStatus");
 
     app.MapPost(
         "/api/development/competitions/import",
@@ -302,6 +332,7 @@ if (app.Environment.IsDevelopment())
         "/api/development/competitions/{id}/sync",
         async (
             string id,
+            bool? full,
             CompetitionSyncService syncService,
             CancellationToken cancellationToken) =>
         {
@@ -312,7 +343,7 @@ if (app.Environment.IsDevelopment())
 
             try
             {
-                var result = await syncService.SyncAsync(id, cancellationToken);
+                var result = await syncService.SyncAsync(id, cancellationToken, full == true);
                 return Results.Ok(result);
             }
             catch (CompetitionNotFoundException)

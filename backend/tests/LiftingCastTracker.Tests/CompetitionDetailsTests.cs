@@ -105,6 +105,34 @@ public sealed class CompetitionDetailsTests
     }
 
     [Fact]
+    public void SortsStringAttemptNumbersNumericallyForObservedLiftNames()
+    {
+        var documents = new[]
+        {
+            CreateDocument("lifter:1", """{"name":"Three-lift lifter","flight":"A"}"""),
+            CreateDocument("attempt:squat-3", """{"lifterId":"lifter:1","liftName":"squat","attemptNumber":"3","weight":140}"""),
+            CreateDocument("attempt:bench-1", """{"lifterId":"lifter:1","liftName":"bench","attemptNumber":"1","weight":80}"""),
+            CreateDocument("attempt:dead-2", """{"lifterId":"lifter:1","liftName":"dead","attemptNumber":"2","weight":170}"""),
+            CreateDocument("attempt:squat-1", """{"lifterId":"lifter:1","liftName":"squat","attemptNumber":"1","weight":120}"""),
+            CreateDocument("attempt:bench-3", """{"lifterId":"lifter:1","liftName":"bench","attemptNumber":"3","weight":90}"""),
+            CreateDocument("attempt:dead-1", """{"lifterId":"lifter:1","liftName":"dead","attemptNumber":"1","weight":160}""")
+        };
+
+        var details = CompetitionDetailsMapper.Create(
+            new Competition { Id = "meet-1", Name = "Completed meet" },
+            documents,
+            DateTimeOffset.UtcNow);
+
+        var lifter = Assert.Single(details.Lifters);
+        Assert.Equal(
+            new[] { "1", "1", "1", "2", "3", "3" },
+            lifter.Attempts.Select(attempt => attempt.AttemptNumber?.GetString()));
+        Assert.Equal(
+            new[] { "bench", "dead", "squat", "dead", "bench", "squat" },
+            lifter.Attempts.Select(attempt => attempt.LiftName));
+    }
+
+    [Fact]
     public void SerializedDetailsExposeOnlyExplicitPrivacySafeDtoFields()
     {
         var competition = new Competition { Id = "meet-1", Name = "Privacy Test" };

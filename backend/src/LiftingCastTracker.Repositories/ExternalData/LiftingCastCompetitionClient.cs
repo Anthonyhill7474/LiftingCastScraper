@@ -133,7 +133,11 @@ public sealed class LiftingCastCompetitionClient : ILiftingCastCompetitionClient
 
         var body = Encoding.UTF8.GetString(contentBuffer.ToArray());
 
-        return new CouchDbHttpResponse((int)response.StatusCode, body);
+        var retryAfter = response.Headers.RetryAfter;
+        var retryAfterUtc = retryAfter?.Date
+            ?? (retryAfter?.Delta is { } delta ? DateTimeOffset.UtcNow.Add(delta) : null);
+
+        return new CouchDbHttpResponse((int)response.StatusCode, body, retryAfterUtc);
     }
 
     private static void ValidateCompetitionId(string competitionId)

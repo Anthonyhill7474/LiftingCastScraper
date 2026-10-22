@@ -204,13 +204,33 @@ curl -k https://localhost:7251/api/competitions/COMPETITION_ID/details
 
 The response includes competition metadata, the last synchronization time, platform runtime summaries, and lifters joined to attempts by `lifterId`. Lifter details include available divisions, flight/session/lot, bodyweight, and attempt slots. Missing source fields remain null or absent; totals, placings, and scores are not calculated. Dates of birth, payment/contact data, and document change histories are not returned.
 
+The local completed-meet fixture uses string attempt numbers `"1"`–`"3"` and lift names `squat`, `bench`, and `dead`; the frontend maps these into the three lift rows and selects attempts numerically. Its observed result labels `good` and `bad` are shown with success/failure colors. An explicit `pending` result is highlighted separately; a missing result is shown as “No result” rather than inferred to mean a successful or failed lift. No upcoming `_all_docs` fixture is available locally, so upcoming-state behavior is covered with incomplete mocked records rather than a second full meet dataset.
+
 An unknown competition returns HTTP 404. A directory competition that has not been synchronized returns HTTP 409 with a not-synchronized message. In Development, manually synchronize it first:
 
 ```bash
 curl -k -X POST https://localhost:7251/api/development/competitions/COMPETITION_ID/sync
 ```
 
-Then reload the details page. No frontend polling is performed. Bodyweight is included in the synchronization allowlist for new or updated documents; documents already stored before that field was allowed may not contain bodyweight until CouchDB sends an update for the document.
+Then reload the details page. No frontend polling is performed. Bodyweight is included in the synchronization allowlist; documents stored before that field was allowed include it after a full refresh or a later upstream document update.
+
+## Refreshing Competition Data
+
+On a Development backend, the competition-details page shows **Refresh changes** and **Full refresh** controls only after `GET /api/development/status` explicitly reports Development mode. The synchronization endpoint remains Development-only regardless of frontend visibility.
+
+- **Refresh changes** uses the saved opaque checkpoint and requests bounded CouchDB `_changes` batches.
+- **Full refresh** fetches a fresh `_all_docs` snapshot and atomically replaces this competition's cached documents and checkpoint. It removes locally cached documents absent from the snapshot, but does not change the competition directory entry. The UI asks for confirmation because the local cache is replaced.
+
+Trigger either action directly when needed:
+
+```bash
+curl -k -X POST https://localhost:7251/api/development/competitions/COMPETITION_ID/sync
+curl -k -X POST 'https://localhost:7251/api/development/competitions/COMPETITION_ID/sync?full=true'
+```
+
+The response reports inserted, updated, unchanged and deleted document counts, batch count, checkpoint and whether more changes remain. A changes refresh processes at most 500 changes per call; if `hasMore` is true, call it again. A full snapshot is limited to 10 MiB and fails without replacing local data if the response is too large, malformed, unsuccessful, or the database transaction fails. Each update batch and its checkpoint commit atomically.
+
+Verify successful state in DBeaver with the read-only synchronization queries below, and compare the `last_sequence`/`last_synced_at` row before and after a refresh. No new migration is required for full refresh.
 
 ## Importing Competition Directory JSON
 
@@ -330,7 +350,60 @@ cd backend/src/LiftingCastTracker.Controllers
 dotnet ef database update --project ../LiftingCastTracker.Repositories --startup-project .
 ```
 
-This milestone stores the current allowlisted document state, not a full document archive. A capped run may require another manual call; no automatic retry, schedule, polling, relational athlete/attempt model, or result calculation is implemented. CouchDB checkpoint behavior has not been verified against a newly captured live sequence as part of build or test runs.
+This stores the current allowlisted document state, not a full document archive. A manual capped run may require another call; the automatic worker described below uses backoff and the same incremental limits. The full snapshot is limited to 10 MiB and a changes refresh to 500 results per call. Checkpoint handling is tested with mocked responses, but CouchDB checkpoint behavior has not been re-verified against a newly captured live sequence as part of build or test runs.
+
+## Controlled Background Synchronization
+
+The API includes one incremental `BackgroundService`, but it is **disabled by default**. It never discovers competitions automatically. Each competition must first be explicitly opted in locally, and the worker only considers parsed meet dates from one UTC calendar day before through one day after today. This date window is an approximation; it does not confirm that a meet is active, and unknown meet time zones/start/end times can affect eligibility.
+
+Apply the new migration after reviewing it. It adds `competitions.automatic_sync_enabled` with a default of `false`:
+
+```bash
+cd backend/src/LiftingCastTracker.Controllers
+dotnet ef migrations script --project ../LiftingCastTracker.Repositories --startup-project .
+dotnet ef database update --project ../LiftingCastTracker.Repositories --startup-project .
+```
+
+Opt in only a competition you intend to synchronize, using DBeaver:
+
+```sql
+UPDATE competitions
+SET automatic_sync_enabled = true
+WHERE id = 'YOUR_COMPETITION_ID';
+```
+
+Disable that competition by setting the flag to `false`. A running sync may finish its current bounded request/batch; the worker will skip it on the next scan. The flag is preserved when competition directory metadata is imported again.
+
+Enable the worker locally through User Secrets (interval and limits are optional; defaults shown):
+
+```bash
+cd backend/src/LiftingCastTracker.Controllers
+dotnet user-secrets set "AutomaticSync:Enabled" "true"
+dotnet user-secrets set "AutomaticSync:IntervalSeconds" "30"
+dotnet user-secrets set "AutomaticSync:MaxConcurrentCompetitions" "2"
+dotnet user-secrets set "AutomaticSync:MaxActiveCompetitionsPerRun" "5"
+```
+
+The interval cannot be configured below 30 seconds. Concurrency is limited to 1–5 competitions at a time, and each scan selects at most 1–50 eligible competitions, rotating through larger opted-in sets. A competition without a saved checkpoint receives the existing initial snapshot; later runs use incremental `_changes` batches, capped at 500 changes per competition. Failures use exponential backoff from the configured interval up to 15 minutes; HTTP 429 responses honor `Retry-After`. An oversized response pauses automatic attempts for that competition until the worker observes it opted out for a scan and then opted back in, or the API process is restarted.
+
+Check the Development-only worker status without exposing document contents:
+
+```bash
+curl -k https://localhost:7251/api/development/automatic-sync/status
+```
+
+It reports whether the worker is enabled, each opted-in competition's approximate date eligibility, last successful sync, safe failure status, and next eligible run time. To disable all automatic synchronization immediately, set `AutomaticSync:Enabled` to `false` in User Secrets and restart the API; shutdown cancels in-flight requests:
+
+```bash
+cd backend/src/LiftingCastTracker.Controllers
+dotnet user-secrets set "AutomaticSync:Enabled" "false"
+```
+
+Restart the API after changing worker configuration. The default setting is false.
+
+To test the scheduler without contacting LiftingCast, run `dotnet test`; all synchronization tests use fake repositories and CouchDB responses. You can also enable the worker locally while leaving every `automatic_sync_enabled` value false: the status endpoint will report an enabled worker with no opted-in competitions, so no upstream request is made. Do not opt in a competition without verifying network behavior and receiving upstream permission before any production use.
+
+The worker and its failure/backoff state are process-local. Do not run multiple API instances with the same competitions opted in; no distributed coordination is implemented.
 
 ## Development Workflow
 

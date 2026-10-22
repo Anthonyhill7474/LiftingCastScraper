@@ -8,6 +8,33 @@ namespace LiftingCastTracker.Repositories.Implementations;
 public sealed class CompetitionSyncRepository(ApplicationDbContext context)
     : ICompetitionSyncRepository
 {
+    public async Task<IReadOnlyList<AutomaticSyncCandidate>> GetAutomaticSyncCandidatesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var competitions = await context.Competitions
+            .AsNoTracking()
+            .Where(competition => competition.AutomaticSyncEnabled)
+            .ToListAsync(cancellationToken);
+        if (competitions.Count == 0)
+        {
+            return [];
+        }
+
+        var competitionIds = competitions.Select(competition => competition.Id).ToArray();
+        var syncStates = await context.CompetitionSyncStates
+            .AsNoTracking()
+            .Where(state => competitionIds.Contains(state.CompetitionId))
+            .ToDictionaryAsync(state => state.CompetitionId, cancellationToken);
+
+        return competitions
+            .Select(competition => new AutomaticSyncCandidate(
+                competition.Id,
+                competition.Name,
+                competition.ParsedDate,
+                syncStates.TryGetValue(competition.Id, out var state) ? state.LastSyncedAt : null))
+            .ToArray();
+    }
+
     public Task<CompetitionSyncState?> GetStateAsync(
         string competitionId,
         CancellationToken cancellationToken = default) =>
@@ -43,7 +70,7 @@ public sealed class CompetitionSyncRepository(ApplicationDbContext context)
                 continue;
             }
 
-            if (HasSameRevision(existing, incoming))
+            if (HasSameDocument(existing, incoming))
             {
                 existing.LastSyncedAt = syncedAtUtc;
                 unchanged++;
@@ -114,7 +141,7 @@ public sealed class CompetitionSyncRepository(ApplicationDbContext context)
                 context.CompetitionDocuments.Add(CreateEntity(competitionId, incoming, syncedAtUtc));
                 inserted++;
             }
-            else if (HasSameRevision(existing, incoming))
+            else if (HasSameDocument(existing, incoming))
             {
                 existing.LastSyncedAt = syncedAtUtc;
                 unchanged++;
@@ -205,8 +232,9 @@ public sealed class CompetitionSyncRepository(ApplicationDbContext context)
             LastSyncedAt = syncedAtUtc
         };
 
-    private static bool HasSameRevision(CompetitionDocument existing, CouchDbSyncDocument incoming) =>
-        existing.Revision == incoming.Revision;
+    private static bool HasSameDocument(CompetitionDocument existing, CouchDbSyncDocument incoming) =>
+        existing.Revision == incoming.Revision
+        && existing.DocumentDataJson == incoming.DataJson;
 
     private static void UpdateEntity(
         CompetitionDocument existing,

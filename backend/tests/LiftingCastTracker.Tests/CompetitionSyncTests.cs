@@ -1,10 +1,15 @@
 using System.Net;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using LiftingCastTracker.Controllers.BackgroundServices;
 using LiftingCastTracker.Repositories.ExternalData;
 using LiftingCastTracker.Services.Models;
 using LiftingCastTracker.Services.Repositories;
 using LiftingCastTracker.Services.Sync;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace LiftingCastTracker.Tests;
 
@@ -211,6 +216,119 @@ public class CompetitionSyncTests
     }
 
     [Fact]
+    public async Task FullRefreshReplacesSnapshotDocumentsAndCheckpoint()
+    {
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        await SeedAsync(
+            syncRepository,
+            "meet-1",
+            "opaque:before",
+            Document("attempt:1", "1-same", """{"weight":100}"""),
+            Document("attempt:removed", "1-old", """{"weight":50}"""));
+        var client = new FakeCouchDbClient
+        {
+            SnapshotResponse = new CouchDbHttpResponse(
+                200,
+                """
+                {
+                  "total_rows": 3,
+                  "update_seq": "opaque:full",
+                  "rows": [
+                    {
+                      "id": "attempt:1",
+                      "doc": { "_id": "attempt:1", "_rev": "1-same", "weight": 110 }
+                    },
+                    {
+                      "id": "attempt:2",
+                      "doc": { "_id": "attempt:2", "_rev": "1-new", "weight": 120 }
+                    },
+                    {
+                      "id": "_design/views",
+                      "doc": { "_id": "_design/views", "_rev": "1-design" }
+                    }
+                  ]
+                }
+                """)
+        };
+
+        var result = await CreateService(client, syncRepository)
+            .SyncAsync("meet-1", fullRefresh: true);
+
+        Assert.False(result.InitialSync);
+        Assert.True(result.FullRefresh);
+        Assert.Equal(1, result.Updated);
+        Assert.Equal(1, result.Inserted);
+        Assert.Equal(1, result.Deleted);
+        Assert.Equal("opaque:full", syncRepository.State?.LastSequence);
+        Assert.Equal("""{"weight":110}""", syncRepository.Documents["attempt:1"].DocumentDataJson);
+        Assert.Contains("attempt:2", syncRepository.Documents.Keys);
+        Assert.DoesNotContain("attempt:removed", syncRepository.Documents.Keys);
+        Assert.DoesNotContain("_design/views", syncRepository.Documents.Keys);
+    }
+
+    [Fact]
+    public async Task FailedFullRefreshPreservesDocumentsAndCheckpoint()
+    {
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        await SeedAsync(
+            syncRepository,
+            "meet-1",
+            "opaque:before",
+            Document("attempt:1", "1-old", """{"weight":100}"""));
+        var client = new FakeCouchDbClient
+        {
+            SnapshotResponse = new CouchDbHttpResponse(
+                200,
+                """
+                {
+                  "total_rows": 1,
+                  "update_seq": "opaque:after",
+                  "rows": [
+                    {
+                      "id": "attempt:1",
+                      "doc": { "_id": "attempt:1", "_rev": "2-new", "weight": 110 }
+                    }
+                  ]
+                }
+                """)
+        };
+        var service = CreateService(client, syncRepository);
+
+        client.SnapshotResponse = new CouchDbHttpResponse(503, """{"error":"unavailable"}""");
+        await Assert.ThrowsAsync<CouchDbSyncException>(
+            () => service.SyncAsync("meet-1", fullRefresh: true));
+        Assert.Equal("opaque:before", syncRepository.State?.LastSequence);
+        Assert.Equal("1-old", syncRepository.Documents["attempt:1"].Revision);
+
+        client.SnapshotResponse = new CouchDbHttpResponse(200, """{"total_rows":1,"rows":[]}""");
+        await Assert.ThrowsAsync<JsonException>(
+            () => service.SyncAsync("meet-1", fullRefresh: true));
+        Assert.Equal("opaque:before", syncRepository.State?.LastSequence);
+        Assert.Equal("1-old", syncRepository.Documents["attempt:1"].Revision);
+
+        client.SnapshotResponse = new CouchDbHttpResponse(
+            200,
+            """
+            {
+              "total_rows": 1,
+              "update_seq": "opaque:after",
+              "rows": [
+                {
+                  "id": "attempt:1",
+                  "doc": { "_id": "attempt:1", "_rev": "2-new", "weight": 110 }
+                }
+              ]
+            }
+            """);
+        syncRepository.FailNextCommit = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.SyncAsync("meet-1", fullRefresh: true));
+        Assert.Equal("opaque:before", syncRepository.State?.LastSequence);
+        Assert.Equal("1-old", syncRepository.Documents["attempt:1"].Revision);
+        Assert.Equal("""{"weight":100}""", syncRepository.Documents["attempt:1"].DocumentDataJson);
+    }
+
+    [Fact]
     public async Task StopsAfterMaximumBatchesAndLeavesCheckpointForNextManualRun()
     {
         var syncRepository = new InMemoryCompetitionSyncRepository();
@@ -315,12 +433,317 @@ public class CompetitionSyncTests
         };
         var service = CreateService(client, new InMemoryCompetitionSyncRepository(), "lock-test");
 
-        var running = service.SyncAsync("lock-test");
+        var running = service.SyncAsync("lock-test", fullRefresh: true);
         await started.Task;
         await Assert.ThrowsAsync<CompetitionSyncAlreadyRunningException>(
             () => service.SyncAsync("lock-test"));
         continueRequest.SetResult();
         await running;
+    }
+
+    [Fact]
+    public async Task AutomaticSyncIsDisabledByDefaultAndMakesNoRequests()
+    {
+        var competitions = new[]
+        {
+            AutoSyncCompetition("meet-1", enabled: true, new DateOnly(2026, 10, 22))
+        };
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        syncRepository.AutomaticSyncCompetitions.AddRange(competitions);
+        var client = new FakeCouchDbClient();
+        using var provider = CreateWorkerProvider(competitions, syncRepository, client);
+        var worker = CreateWorker(provider, new AutomaticSyncOptions(), new MutableTimeProvider(
+            new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.Zero)));
+
+        await worker.RunOnceAsync();
+
+        Assert.Equal(0, client.SnapshotRequestCount);
+        Assert.False((await worker.GetStatusAsync()).Enabled);
+    }
+
+    [Fact]
+    public async Task EnabledWorkerWithNoOptedInCompetitionsMakesNoRequests()
+    {
+        var competitions = new[]
+        {
+            AutoSyncCompetition("meet-1", enabled: false, new DateOnly(2026, 10, 22))
+        };
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        syncRepository.AutomaticSyncCompetitions.AddRange(competitions);
+        var client = new FakeCouchDbClient();
+        using var provider = CreateWorkerProvider(competitions, syncRepository, client);
+        var worker = CreateWorker(
+            provider,
+            new AutomaticSyncOptions { Enabled = true },
+            new MutableTimeProvider(new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.Zero)));
+
+        await worker.RunOnceAsync();
+        var status = await worker.GetStatusAsync();
+
+        Assert.True(status.Enabled);
+        Assert.Empty(status.Competitions);
+        Assert.Equal(0, client.SnapshotRequestCount);
+    }
+
+    [Fact]
+    public async Task AutomaticSyncRequiresOptInDateEligibilityAndRespectsActiveLimit()
+    {
+        var competitions = new[]
+        {
+            AutoSyncCompetition("meet-1", enabled: true, new DateOnly(2026, 10, 22)),
+            AutoSyncCompetition("meet-2", enabled: true, new DateOnly(2026, 10, 23)),
+            AutoSyncCompetition("meet-3", enabled: false, new DateOnly(2026, 10, 22)),
+            AutoSyncCompetition("meet-4", enabled: true, date: null)
+        };
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        syncRepository.AutomaticSyncCompetitions.AddRange(competitions);
+        var client = new FakeCouchDbClient();
+        using var provider = CreateWorkerProvider(competitions, syncRepository, client);
+        var worker = CreateWorker(
+            provider,
+            new AutomaticSyncOptions
+            {
+                Enabled = true,
+                MaxActiveCompetitionsPerRun = 1,
+                MaxConcurrentCompetitions = 1
+            },
+            new MutableTimeProvider(new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.Zero)));
+
+        await worker.RunOnceAsync();
+        var status = await worker.GetStatusAsync();
+
+        Assert.Equal(1, client.SnapshotRequestCount);
+        Assert.Equal(new[] { "meet-1", "meet-2", "meet-4" }, status.Competitions.Select(item => item.CompetitionId));
+        Assert.True(status.Competitions[0].DateEligible);
+        Assert.True(status.Competitions[1].DateEligible);
+        Assert.False(status.Competitions[2].DateEligible);
+        Assert.Equal(1, status.MaxActiveCompetitionsPerRun);
+    }
+
+    [Fact]
+    public async Task AutomaticSyncUsesConfiguredIntervalForNextEligibleRun()
+    {
+        var now = new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.Zero);
+        var competitions = new[] { AutoSyncCompetition("meet-1", enabled: true, new DateOnly(2026, 10, 22)) };
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        syncRepository.AutomaticSyncCompetitions.AddRange(competitions);
+        using var provider = CreateWorkerProvider(competitions, syncRepository, new FakeCouchDbClient());
+        var worker = CreateWorker(
+            provider,
+            new AutomaticSyncOptions { Enabled = true, IntervalSeconds = 45 },
+            new MutableTimeProvider(now));
+
+        await worker.RunOnceAsync();
+        var competitionStatus = Assert.Single((await worker.GetStatusAsync()).Competitions);
+
+        Assert.Equal(now.AddSeconds(45), competitionStatus.NextEligibleSyncAtUtc);
+        Assert.NotNull(competitionStatus.LastSuccessfulSyncAtUtc);
+    }
+
+    [Fact]
+    public async Task AutomaticSyncBoundsConcurrentAndActiveCompetitions()
+    {
+        var competitions = Enumerable.Range(1, 3)
+            .Select(index => AutoSyncCompetition($"meet-{index}", enabled: true, new DateOnly(2026, 10, 22)))
+            .ToArray();
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        syncRepository.AutomaticSyncCompetitions.AddRange(competitions);
+        var client = new FakeCouchDbClient();
+        var startedTwo = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var active = 0;
+        var maximumActive = 0;
+        client.SnapshotResponseProvider = async cancellationToken =>
+        {
+            var current = Interlocked.Increment(ref active);
+            UpdateMaximum(ref maximumActive, current);
+            if (current == 2)
+            {
+                startedTwo.TrySetResult();
+            }
+
+            try
+            {
+                await release.Task.WaitAsync(cancellationToken);
+                return new CouchDbHttpResponse(200, """{"total_rows":0,"update_seq":"opaque:1","rows":[]}""");
+            }
+            finally
+            {
+                Interlocked.Decrement(ref active);
+            }
+        };
+        using var provider = CreateWorkerProvider(competitions, syncRepository, client);
+        var worker = CreateWorker(
+            provider,
+            new AutomaticSyncOptions
+            {
+                Enabled = true,
+                MaxConcurrentCompetitions = 2,
+                MaxActiveCompetitionsPerRun = 3
+            },
+            new MutableTimeProvider(new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.Zero)));
+
+        var run = worker.RunOnceAsync();
+        await startedTwo.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, Volatile.Read(ref maximumActive));
+        release.TrySetResult();
+        await run;
+
+        Assert.Equal(3, client.SnapshotRequestCount);
+        Assert.Equal(2, maximumActive);
+    }
+
+    [Fact]
+    public async Task AutomaticSyncHonorsFailureBackoffAndRetryAfter()
+    {
+        var now = new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.Zero);
+        var timeProvider = new MutableTimeProvider(now);
+        var competitions = new[] { AutoSyncCompetition("meet-1", enabled: true, new DateOnly(2026, 10, 22)) };
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        syncRepository.AutomaticSyncCompetitions.AddRange(competitions);
+        var client = new FakeCouchDbClient
+        {
+            SnapshotResponse = new CouchDbHttpResponse(503, """{"error":"unavailable"}""")
+        };
+        using var provider = CreateWorkerProvider(competitions, syncRepository, client);
+        var worker = CreateWorker(
+            provider,
+            new AutomaticSyncOptions { Enabled = true },
+            timeProvider);
+
+        await worker.RunOnceAsync();
+        var firstStatus = Assert.Single((await worker.GetStatusAsync()).Competitions);
+        Assert.Equal(now.AddSeconds(30), firstStatus.NextEligibleSyncAtUtc);
+
+        timeProvider.Advance(TimeSpan.FromSeconds(30));
+        await worker.RunOnceAsync();
+        var secondStatus = Assert.Single((await worker.GetStatusAsync()).Competitions);
+        Assert.Equal(2, secondStatus.ConsecutiveFailures);
+        Assert.Equal(now.AddSeconds(90), secondStatus.NextEligibleSyncAtUtc);
+
+        timeProvider.Advance(TimeSpan.FromSeconds(30));
+        await worker.RunOnceAsync();
+        Assert.Equal(2, client.SnapshotRequestCount);
+
+        var retryAfter = timeProvider.GetUtcNow().AddMinutes(5);
+        client.SnapshotResponse = new CouchDbHttpResponse(
+            429,
+            """{"error":"too_many_requests"}""",
+            retryAfter);
+        timeProvider.Advance(TimeSpan.FromSeconds(30));
+        await worker.RunOnceAsync();
+        var throttledStatus = Assert.Single((await worker.GetStatusAsync()).Competitions);
+        Assert.Equal("CouchDB HTTP 429", throttledStatus.LastFailureStatus);
+        Assert.Equal(retryAfter, throttledStatus.NextEligibleSyncAtUtc);
+    }
+
+    [Fact]
+    public async Task FailedCompetitionDoesNotStopOtherEligibleCompetitions()
+    {
+        var competitions = new[]
+        {
+            AutoSyncCompetition("meet-1", enabled: true, new DateOnly(2026, 10, 22)),
+            AutoSyncCompetition("meet-2", enabled: true, new DateOnly(2026, 10, 22))
+        };
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        syncRepository.AutomaticSyncCompetitions.AddRange(competitions);
+        var client = new FakeCouchDbClient();
+        var requestNumber = 0;
+        client.SnapshotResponseProvider = _ => Task.FromResult(
+            Interlocked.Increment(ref requestNumber) == 1
+                ? new CouchDbHttpResponse(503, """{"error":"unavailable"}""")
+                : new CouchDbHttpResponse(200, """{"total_rows":0,"update_seq":"opaque:1","rows":[]}"""));
+        using var provider = CreateWorkerProvider(competitions, syncRepository, client);
+        var worker = CreateWorker(
+            provider,
+            new AutomaticSyncOptions
+            {
+                Enabled = true,
+                MaxConcurrentCompetitions = 1,
+                MaxActiveCompetitionsPerRun = 2
+            },
+            new MutableTimeProvider(new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.Zero)));
+
+        await worker.RunOnceAsync();
+        var status = (await worker.GetStatusAsync()).Competitions;
+
+        Assert.Equal(2, client.SnapshotRequestCount);
+        Assert.Equal("CouchDB HTTP 503", status[0].LastFailureStatus);
+        Assert.Null(status[0].LastSuccessfulSyncAtUtc);
+        Assert.NotNull(status[1].LastSuccessfulSyncAtUtc);
+    }
+
+    [Fact]
+    public async Task AutomaticSyncPausesAfterOversizedResponseAndRespectsCancellation()
+    {
+        var now = new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.Zero);
+        var competitions = new[] { AutoSyncCompetition("meet-1", enabled: true, new DateOnly(2026, 10, 22)) };
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        syncRepository.AutomaticSyncCompetitions.AddRange(competitions);
+        var client = new FakeCouchDbClient
+        {
+            SnapshotResponseProvider = _ => throw new InvalidDataException("Oversized snapshot.")
+        };
+        using var provider = CreateWorkerProvider(competitions, syncRepository, client);
+        var worker = CreateWorker(
+            provider,
+            new AutomaticSyncOptions { Enabled = true },
+            new MutableTimeProvider(now));
+
+        await worker.RunOnceAsync();
+        await worker.RunOnceAsync();
+        var pausedStatus = Assert.Single((await worker.GetStatusAsync()).Competitions);
+
+        Assert.Equal(1, client.SnapshotRequestCount);
+        Assert.True(pausedStatus.Paused);
+        Assert.Null(pausedStatus.NextEligibleSyncAtUtc);
+
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.SnapshotResponseProvider = async cancellationToken =>
+        {
+            started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new CouchDbHttpResponse(200, """{"total_rows":0,"update_seq":"opaque:2","rows":[]}""");
+        };
+        syncRepository.AutomaticSyncCompetitions[0].AutomaticSyncEnabled = false;
+        await worker.RunOnceAsync();
+        syncRepository.AutomaticSyncCompetitions[0].AutomaticSyncEnabled = true;
+
+        using var cancellation = new CancellationTokenSource();
+        var running = worker.RunOnceAsync(cancellation.Token);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+    }
+
+    [Fact]
+    public async Task AutomaticSyncDoesNotOverlapWorkerRuns()
+    {
+        var competitions = new[] { AutoSyncCompetition("meet-1", enabled: true, new DateOnly(2026, 10, 22)) };
+        var syncRepository = new InMemoryCompetitionSyncRepository();
+        syncRepository.AutomaticSyncCompetitions.AddRange(competitions);
+        var client = new FakeCouchDbClient();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.SnapshotResponseProvider = async cancellationToken =>
+        {
+            started.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+            return new CouchDbHttpResponse(200, """{"total_rows":0,"update_seq":"opaque:1","rows":[]}""");
+        };
+        using var provider = CreateWorkerProvider(competitions, syncRepository, client);
+        var worker = CreateWorker(
+            provider,
+            new AutomaticSyncOptions { Enabled = true },
+            new MutableTimeProvider(new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.Zero)));
+
+        var firstRun = worker.RunOnceAsync();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await worker.RunOnceAsync();
+        Assert.Equal(1, client.SnapshotRequestCount);
+        release.TrySetResult();
+        await firstRun;
     }
 
     [Fact]
@@ -344,6 +767,30 @@ public class CompetitionSyncTests
         Assert.Equal(
             "feed=normal&since=377-g1AAA%2Bopaque%2F1&include_docs=true&limit=25",
             handler.RequestUri?.GetComponents(UriComponents.Query, UriFormat.UriEscaped));
+    }
+
+    [Fact]
+    public async Task SyncClientPreservesRetryAfterForThrottledResponses()
+    {
+        var expectedRetryAt = DateTimeOffset.UtcNow.AddMinutes(2);
+        var handler = new RecordingHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent("{}")
+            };
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(
+                expectedRetryAt);
+            return response;
+        });
+        var client = new LiftingCastCompetitionClient(new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://example.test/")
+        });
+
+        var response = await client.GetSyncChangesAsync("meet-1", "opaque:1", 25);
+
+        Assert.Equal(expectedRetryAt, response.RetryAfterUtc);
     }
 
     private static CompetitionSyncService CreateService(
@@ -380,22 +827,88 @@ public class CompetitionSyncTests
         });
     }
 
-    private sealed class InMemoryCompetitionRepository(string competitionId) : ICompetitionRepository
+    private static Competition AutoSyncCompetition(string id, bool enabled, DateOnly? date) =>
+        new()
+        {
+            Id = id,
+            Name = id,
+            Date = date?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+            DateFormat = "DD/MM/YYYY",
+            AutomaticSyncEnabled = enabled
+        };
+
+    private static ServiceProvider CreateWorkerProvider(
+        IReadOnlyCollection<Competition> competitions,
+        InMemoryCompetitionSyncRepository syncRepository,
+        FakeCouchDbClient client)
     {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddScoped<ICompetitionRepository>(
+            _ => new InMemoryCompetitionRepository(competitions.Select(item => item.Id).ToArray()));
+        services.AddScoped<ICompetitionSyncRepository>(_ => syncRepository);
+        services.AddScoped<ILiftingCastCompetitionClient>(_ => client);
+        services.AddScoped<CompetitionSyncService>();
+        syncRepository.AutomaticSyncCompetitions.Clear();
+        syncRepository.AutomaticSyncCompetitions.AddRange(competitions);
+        return services.BuildServiceProvider();
+    }
+
+    private static CompetitionSyncBackgroundService CreateWorker(
+        IServiceProvider provider,
+        AutomaticSyncOptions options,
+        TimeProvider timeProvider) =>
+        new(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            Options.Create(options),
+            timeProvider,
+            provider.GetRequiredService<ILogger<CompetitionSyncBackgroundService>>());
+
+    private static void UpdateMaximum(ref int target, int value)
+    {
+        var current = Volatile.Read(ref target);
+        while (value > current)
+        {
+            var observed = Interlocked.CompareExchange(ref target, value, current);
+            if (observed == current)
+            {
+                break;
+            }
+
+            current = observed;
+        }
+    }
+
+    private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        private DateTimeOffset _now = now;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public void Advance(TimeSpan amount) => _now += amount;
+    }
+
+    private sealed class InMemoryCompetitionRepository(params string[] competitionIds) : ICompetitionRepository
+    {
+        private readonly HashSet<string> _competitionIds = competitionIds.ToHashSet(StringComparer.Ordinal);
+
         public Task<List<Competition>> GetAllAsync() =>
-            Task.FromResult(new List<Competition> { new() { Id = competitionId, Name = "Test" } });
+            Task.FromResult(_competitionIds
+                .Select(id => new Competition { Id = id, Name = "Test" })
+                .ToList());
 
         public Task<Competition?> GetByIdAsync(string id) =>
-            Task.FromResult(id == competitionId
+            Task.FromResult(_competitionIds.Contains(id)
                 ? new Competition { Id = id, Name = "Test" }
                 : null);
 
         public Task<List<Competition>> GetByIdsAsync(
             IReadOnlyCollection<string> ids,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(ids.Contains(competitionId)
-                ? new List<Competition> { new() { Id = competitionId, Name = "Test" } }
-                : []);
+            Task.FromResult(ids
+                .Where(_competitionIds.Contains)
+                .Select(id => new Competition { Id = id, Name = "Test" })
+                .ToList());
 
         public Task SaveImportedAsync(
             IReadOnlyCollection<Competition> inserted,
@@ -408,7 +921,19 @@ public class CompetitionSyncTests
     {
         public Dictionary<string, CompetitionDocument> Documents { get; } = new(StringComparer.Ordinal);
         public CompetitionSyncState? State { get; private set; }
+        public List<Competition> AutomaticSyncCompetitions { get; } = [];
         public bool FailNextCommit { get; set; }
+
+        public Task<IReadOnlyList<AutomaticSyncCandidate>> GetAutomaticSyncCandidatesAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult((IReadOnlyList<AutomaticSyncCandidate>)AutomaticSyncCompetitions
+                .Where(competition => competition.AutomaticSyncEnabled)
+                .Select(competition => new AutomaticSyncCandidate(
+                    competition.Id,
+                    competition.Name,
+                    competition.ParsedDate,
+                    State?.CompetitionId == competition.Id ? State.LastSyncedAt : null))
+                .ToArray());
 
         public Task<CompetitionSyncState?> GetStateAsync(
             string competitionId,
@@ -433,7 +958,8 @@ public class CompetitionSyncTests
             {
                 if (Documents.TryGetValue(document.Id, out var current))
                 {
-                    if (current.Revision == document.Revision)
+                    if (current.Revision == document.Revision
+                        && current.DocumentDataJson == document.DataJson)
                     {
                         unchanged++;
                         current.LastSyncedAt = syncedAtUtc;
@@ -485,7 +1011,8 @@ public class CompetitionSyncTests
                 var incoming = change.Document!;
                 if (nextDocuments.TryGetValue(change.Id, out var current))
                 {
-                    if (current.Revision == incoming.Revision)
+                    if (current.Revision == incoming.Revision
+                        && current.DocumentDataJson == incoming.DataJson)
                     {
                         unchanged++;
                         current.LastSyncedAt = syncedAtUtc;
@@ -577,6 +1104,8 @@ public class CompetitionSyncTests
         public Queue<CouchDbHttpResponse> ChangesResponses { get; } = new();
         public List<string> RequestedCheckpoints { get; } = [];
         public List<int> RequestedLimits { get; } = [];
+        private int _snapshotRequestCount;
+        public int SnapshotRequestCount => Volatile.Read(ref _snapshotRequestCount);
 
         public Task<CouchDbHttpResponse> GetSnapshotAsync(
             string competitionId,
@@ -585,8 +1114,11 @@ public class CompetitionSyncTests
 
         public Task<CouchDbHttpResponse> GetSyncSnapshotAsync(
             string competitionId,
-            CancellationToken cancellationToken = default) =>
-            SnapshotResponseProvider?.Invoke(cancellationToken) ?? Task.FromResult(SnapshotResponse);
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _snapshotRequestCount);
+            return SnapshotResponseProvider?.Invoke(cancellationToken) ?? Task.FromResult(SnapshotResponse);
+        }
 
         public Task<CouchDbHttpResponse> GetDocumentAsync(
             string competitionId,

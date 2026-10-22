@@ -100,12 +100,14 @@ public class CompetitionImportTests
         var importer = new CompetitionImportService(repository);
 
         await importer.ImportAsync("""{"docs":[{"_id":"meet-1","name":"Old name"}]}""");
+        repository.Competitions[0].AutomaticSyncEnabled = true;
         var result = await importer.ImportAsync(
             """{"docs":[{"_id":"meet-1","name":"New name","showOnHomePage":true},{"name":"No identifier"}]}""");
 
         Assert.Equal(new CompetitionImportSummary(0, 1, 0, 1), result);
         Assert.Equal("New name", Assert.Single(repository.Competitions).Name);
         Assert.True(repository.Competitions[0].ShowOnHomePage);
+        Assert.True(repository.Competitions[0].AutomaticSyncEnabled);
     }
 
     private sealed class InMemoryCompetitionRepository : ICompetitionRepository

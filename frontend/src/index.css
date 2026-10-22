@@ -190,6 +190,66 @@ body {
   font-size: 0.9rem;
 }
 
+.refresh-panel,
+.sync-summary {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.refresh-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.refresh-button {
+  background: #4d5db3;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  min-height: 42px;
+  padding: 0.6rem 0.9rem;
+}
+
+.refresh-button.secondary {
+  background: #fff;
+  border: 1px solid #4d5db3;
+  color: #4d5db3;
+}
+
+.refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.refresh-button:focus-visible {
+  outline: 3px solid #344db8;
+  outline-offset: 3px;
+}
+
+.refresh-help {
+  color: #666;
+  font-size: 0.88rem;
+  margin-top: 0.75rem;
+}
+
+.sync-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.92rem;
+}
+
+.sync-summary strong {
+  color: #2e7d32;
+}
+
 .state.empty {
   align-items: center;
   display: flex;
@@ -297,6 +357,28 @@ body {
 
 .attempt-table td {
   font-size: 0.9rem;
+}
+
+.attempt-result {
+  font-weight: 600;
+}
+
+.attempt-result.success {
+  color: #1b5e20;
+}
+
+.attempt-result.failure {
+  color: #b71c1c;
+}
+
+.attempt-result.pending,
+.attempt-result.incomplete {
+  color: #8a5600;
+}
+
+.attempt-result.missing {
+  color: #777;
+  font-weight: 400;
 }
 
 @media (max-width: 768px) {

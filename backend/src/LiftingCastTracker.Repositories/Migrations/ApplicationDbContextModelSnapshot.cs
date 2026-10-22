@@ -28,6 +28,12 @@ namespace LiftingCastTracker.Repositories.Migrations
                         .HasColumnType("text")
                         .HasColumnName("id");
 
+                    b.Property<bool>("AutomaticSyncEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("automatic_sync_enabled");
+
                     b.Property<DateTime?>("CreateDate")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("create_date");

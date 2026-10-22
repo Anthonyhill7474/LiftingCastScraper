@@ -22,6 +22,20 @@ interface CompetitionDetails {
   lifters: Lifter[]
 }
 
+interface SyncSummary {
+  competitionId: string
+  initialSync: boolean
+  inserted: number
+  updated: number
+  unchanged: number
+  deleted: number
+  batches: number
+  lastSequence: string
+  hasMore: boolean
+  syncedAtUtc: string
+  fullRefresh: boolean
+}
+
 interface Platform {
   documentId: string
   name?: string | null
@@ -124,8 +138,19 @@ function describeAttempt(attempt?: Attempt): string {
   if (!attempt) return '—'
   const weight = formatValue(attempt.weight)
   const result = formatValue(attempt.result)
+  if (result === '—') return weight === '—' ? 'No result' : `${weight} · No result`
   if (weight === '—') return result
-  return result === '—' ? weight : `${weight} · ${result}`
+  return `${weight} · ${result}`
+}
+
+function getAttemptStatus(attempt?: Attempt): 'missing' | 'success' | 'failure' | 'pending' | 'incomplete' {
+  if (!attempt) return 'missing'
+  if (typeof attempt.result !== 'string' || attempt.result.trim() === '') return 'incomplete'
+  const result = attempt.result.trim().toLocaleLowerCase()
+  if (result === 'good') return 'success'
+  if (result === 'bad') return 'failure'
+  if (result === 'pending') return 'pending'
+  return 'incomplete'
 }
 
 function formatSyncedAt(value?: string | null): string {
@@ -143,6 +168,11 @@ export default function App() {
   const [detailsLoading, setDetailsLoading] = useState(false)
   const [detailsError, setDetailsError] = useState<string | null>(null)
   const [notSynchronized, setNotSynchronized] = useState(false)
+  const [backendDevelopment, setBackendDevelopment] = useState(false)
+  const [refreshing, setRefreshing] = useState<'changes' | 'full' | null>(null)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  const [refreshSummary, setRefreshSummary] = useState<SyncSummary | null>(null)
+  const [detailsReloadKey, setDetailsReloadKey] = useState(0)
   const today = new Date()
   const todayValue = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
   const sortedCompetitions = [...competitions].sort((left, right) => {
@@ -176,13 +206,35 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const controller = new AbortController()
+    const checkDevelopmentMode = async () => {
+      try {
+        const apiBase = import.meta.env.VITE_API_BASE_URL || 'https://localhost:7251'
+        const response = await fetch(`${apiBase}/api/development/status`, {
+          signal: controller.signal,
+        })
+        if (!response.ok) return
+        const status = await response.json()
+        setBackendDevelopment(
+          status.environment === 'Development' && status.isDevelopment === true,
+        )
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return
+        setBackendDevelopment(false)
+      }
+    }
+
+    checkDevelopmentMode()
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
     if (!selectedCompetition) {
       return
     }
 
     const controller = new AbortController()
     const fetchDetails = async () => {
-      setDetails(null)
       setDetailsError(null)
       setNotSynchronized(false)
       setDetailsLoading(true)
@@ -208,7 +260,37 @@ export default function App() {
 
     fetchDetails()
     return () => controller.abort()
-  }, [selectedCompetition])
+  }, [selectedCompetition, detailsReloadKey])
+
+  const refreshCompetition = async (fullRefresh: boolean) => {
+    if (!selectedCompetition || refreshing) return
+    if (fullRefresh && !window.confirm(
+      'Full refresh replaces all locally cached documents for this competition with a fresh CouchDB snapshot. Continue?',
+    )) {
+      return
+    }
+
+    setRefreshing(fullRefresh ? 'full' : 'changes')
+    setRefreshError(null)
+    setRefreshSummary(null)
+    try {
+      const apiBase = import.meta.env.VITE_API_BASE_URL || 'https://localhost:7251'
+      const url = `${apiBase}/api/development/competitions/${encodeURIComponent(selectedCompetition.id)}/sync${fullRefresh ? '?full=true' : ''}`
+      const response = await fetch(url, { method: 'POST' })
+      const summary = await response.json()
+      if (!response.ok) {
+        throw new Error(summary.detail || summary.error || `Synchronization failed: HTTP ${response.status}`)
+      }
+
+      setRefreshSummary(summary)
+      setNotSynchronized(false)
+      setDetailsReloadKey((key) => key + 1)
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : 'Synchronization failed')
+    } finally {
+      setRefreshing(null)
+    }
+  }
 
   return (
     <div className="app">
@@ -220,7 +302,16 @@ export default function App() {
       <main className="main">
         {selectedCompetition ? (
           <section className="competition-details">
-            <button className="back-button" onClick={() => setSelectedCompetition(null)}>
+            <button
+              className="back-button"
+              disabled={refreshing !== null}
+              onClick={() => {
+                setDetails(null)
+                setSelectedCompetition(null)
+                setRefreshSummary(null)
+                setRefreshError(null)
+              }}
+            >
               ← All competitions
             </button>
             <div className="details-heading">
@@ -232,6 +323,50 @@ export default function App() {
                 <p className="sync-time">Last synchronized: {formatSyncedAt(details.lastSyncedAtUtc)}</p>
               )}
             </div>
+
+            {backendDevelopment && (
+              <div className="refresh-panel">
+                <div className="refresh-actions">
+                  <button
+                    className="refresh-button"
+                    disabled={refreshing !== null}
+                    onClick={() => refreshCompetition(false)}
+                  >
+                    {refreshing === 'changes' ? 'Refreshing changes…' : 'Refresh changes'}
+                  </button>
+                  <button
+                    className="refresh-button secondary"
+                    disabled={refreshing !== null}
+                    onClick={() => refreshCompetition(true)}
+                  >
+                    {refreshing === 'full' ? 'Full refresh in progress…' : 'Full refresh'}
+                  </button>
+                </div>
+                <p className="refresh-help">
+                  Full refresh replaces locally cached competition documents with a fresh snapshot.
+                </p>
+              </div>
+            )}
+            {refreshing && <div className="state">Synchronizing competition data...</div>}
+            {refreshError && <div className="state error">Synchronization failed: {refreshError}</div>}
+            {refreshSummary && (
+              <div className="sync-summary" role="status">
+                <strong>
+                  {refreshSummary.fullRefresh
+                    ? 'Full refresh completed'
+                    : refreshSummary.initialSync
+                      ? 'Initial synchronization completed'
+                      : 'Changes refresh completed'}
+                </strong>
+                <span>
+                  Added {refreshSummary.inserted}, updated {refreshSummary.updated}, unchanged {refreshSummary.unchanged}, removed {refreshSummary.deleted}
+                  {' · '}batches {refreshSummary.batches}
+                </span>
+                {refreshSummary.hasMore && (
+                  <span>More changes remain. Select Refresh changes again to continue.</span>
+                )}
+              </div>
+            )}
 
             {detailsLoading && <div className="state">Loading competition details...</div>}
             {detailsError && <div className="state error">Error: {detailsError}</div>}
@@ -301,11 +436,17 @@ export default function App() {
                                 ] as const).map(([liftType, label]) => (
                                   <tr key={liftType}>
                                     <th scope="row">{label}</th>
-                                    {[1, 2, 3].map((attemptNumber) => (
-                                      <td key={attemptNumber}>
-                                        {describeAttempt(getAttemptForSlot(lifter, liftType, attemptNumber))}
-                                      </td>
-                                    ))}
+                                    {[1, 2, 3].map((attemptNumber) => {
+                                      const attempt = getAttemptForSlot(lifter, liftType, attemptNumber)
+                                      return (
+                                        <td
+                                          key={attemptNumber}
+                                          className={`attempt-result ${getAttemptStatus(attempt)}`}
+                                        >
+                                          {describeAttempt(attempt)}
+                                        </td>
+                                      )
+                                    })}
                                   </tr>
                                 ))}
                               </tbody>
@@ -348,7 +489,12 @@ export default function App() {
                       <button
                         key={competition.id}
                         className="card card-button"
-                        onClick={() => setSelectedCompetition(competition)}
+                        onClick={() => {
+                          setDetails(null)
+                          setRefreshSummary(null)
+                          setRefreshError(null)
+                          setSelectedCompetition(competition)
+                        }}
                       >
                         <h3>{competition.name || 'Unnamed competition'}</h3>
                         <p className="date">{dateLabel}</p>

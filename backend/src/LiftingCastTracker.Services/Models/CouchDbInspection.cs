@@ -2,7 +2,16 @@ using System.Text.Json;
 
 namespace LiftingCastTracker.Services.Models;
 
-public sealed record CouchDbHttpResponse(int StatusCode, string Body);
+public sealed record CouchDbHttpResponse(
+    int StatusCode,
+    string Body,
+    DateTimeOffset? RetryAfterUtc = null);
+
+public sealed record AutomaticSyncCandidate(
+    string CompetitionId,
+    string CompetitionName,
+    DateOnly? CompetitionDate,
+    DateTimeOffset? LastSyncedAtUtc);
 
 public sealed record CouchDbSnapshotSummary(
     string CompetitionId,
@@ -102,7 +111,8 @@ public sealed record CompetitionSyncResult(
     int Batches,
     string LastSequence,
     bool HasMore,
-    DateTimeOffset SyncedAtUtc);
+    DateTimeOffset SyncedAtUtc,
+    bool FullRefresh);
 
 public sealed record SynchronizedDocumentSummary(
     string DocumentId,

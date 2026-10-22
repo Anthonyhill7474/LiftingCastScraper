@@ -29,7 +29,8 @@ public sealed class CompetitionSyncService
 
     public async Task<CompetitionSyncResult> SyncAsync(
         string competitionId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool fullRefresh = false)
     {
         if (!CompetitionIdValidator.IsValid(competitionId))
         {
@@ -50,8 +51,12 @@ public sealed class CompetitionSyncService
             }
 
             var syncState = await _syncRepository.GetStateAsync(competitionId, cancellationToken);
-            return syncState is null
-                ? await SynchronizeSnapshotAsync(competitionId, cancellationToken)
+            return fullRefresh || syncState is null
+                ? await SynchronizeSnapshotAsync(
+                    competitionId,
+                    syncState is null,
+                    fullRefresh,
+                    cancellationToken)
                 : await SynchronizeChangesAsync(competitionId, syncState.LastSequence, cancellationToken);
         }
         finally
@@ -62,6 +67,8 @@ public sealed class CompetitionSyncService
 
     private async Task<CompetitionSyncResult> SynchronizeSnapshotAsync(
         string competitionId,
+        bool initialSync,
+        bool fullRefresh,
         CancellationToken cancellationToken)
     {
         var response = await _couchDbClient.GetSyncSnapshotAsync(competitionId, cancellationToken);
@@ -78,7 +85,7 @@ public sealed class CompetitionSyncService
 
         return new CompetitionSyncResult(
             competitionId,
-            true,
+            initialSync,
             counts.Inserted,
             counts.Updated,
             counts.Unchanged,
@@ -86,7 +93,8 @@ public sealed class CompetitionSyncService
             1,
             snapshot.LastSequence,
             false,
-            syncedAtUtc);
+            syncedAtUtc,
+            fullRefresh);
     }
 
     private async Task<CompetitionSyncResult> SynchronizeChangesAsync(
@@ -148,14 +156,15 @@ public sealed class CompetitionSyncService
             batchCount,
             checkpoint,
             hasMore,
-            syncedAtUtc);
+            syncedAtUtc,
+            false);
     }
 
     private static void EnsureSuccessfulResponse(CouchDbHttpResponse response)
     {
         if (response.StatusCode is < 200 or >= 300)
         {
-            throw new CouchDbSyncException(response.StatusCode);
+            throw new CouchDbSyncException(response.StatusCode, response.RetryAfterUtc);
         }
     }
 }
@@ -166,8 +175,9 @@ public sealed class CompetitionNotFoundException(string competitionId)
 public sealed class CompetitionSyncAlreadyRunningException(string competitionId)
     : Exception($"A synchronization for competition '{competitionId}' is already running.");
 
-public sealed class CouchDbSyncException(int statusCode)
+public sealed class CouchDbSyncException(int statusCode, DateTimeOffset? retryAfterUtc = null)
     : Exception($"CouchDB returned HTTP {statusCode}.")
 {
     public int StatusCode { get; } = statusCode;
+    public DateTimeOffset? RetryAfterUtc { get; } = retryAfterUtc;
 }
