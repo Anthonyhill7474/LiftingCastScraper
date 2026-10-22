@@ -171,6 +171,15 @@ cd frontend
 npm run lint
 ```
 
+### Frontend Tests
+
+```bash
+cd frontend
+npm test
+```
+
+These focused tests use Node's built-in test runner and do not require additional packages.
+
 ## API Endpoints
 
 ### Health Check
@@ -202,7 +211,7 @@ Open a competition from the directory to view its locally synchronized lifters a
 curl -k https://localhost:7251/api/competitions/COMPETITION_ID/details
 ```
 
-The response includes competition metadata, the last synchronization time, platform runtime summaries, and lifters joined to attempts by `lifterId`. Lifter details include available divisions, flight/session/lot, bodyweight, and attempt slots. Missing source fields remain null or absent; totals, placings, and scores are not calculated. Dates of birth, payment/contact data, and document change histories are not returned.
+The response includes competition metadata, the last synchronization time, platform runtime summaries, and lifters joined to attempts by `lifterId`. Lifter details include available divisions, flight/session/lot, bodyweight, platform ID, and attempt slots. Missing source fields remain null or absent; totals, placings, and scores are not calculated. Dates of birth, payment/contact data, and document change histories are not returned.
 
 The local completed-meet fixture uses string attempt numbers `"1"`–`"3"` and lift names `squat`, `bench`, and `dead`; the frontend maps these into the three lift rows and selects attempts numerically. Its observed result labels `good` and `bad` are shown with success/failure colors. An explicit `pending` result is highlighted separately; a missing result is shown as “No result” rather than inferred to mean a successful or failed lift. No upcoming `_all_docs` fixture is available locally, so upcoming-state behavior is covered with incomplete mocked records rather than a second full meet dataset.
 
@@ -223,6 +232,12 @@ curl -k https://localhost:7251/api/competitions/COMPETITION_ID/platforms
 ```
 
 The response includes platform IDs/names and available `clockState`, `clockTimerLength`, and `currentAttemptId` source values. A current attempt is included only when its ID matches a stored attempt; its lifter is included only when `lifterId` resolves to a stored lifter. The dashboard displays the timer length as a raw value and does not interpret clock units, calculate a countdown, or predict what comes next. Missing runtime fields and unresolved references remain unknown or unavailable. The endpoint does not return stored raw documents, attempt results, or sensitive lifter fields.
+
+### Following Lifters
+
+In a competition's details page, select **Follow** beside each lifter you coach. The **My Lifters** view shows only those selections; use **All lifters** to return to the complete list. Followed lifters are identified by their CouchDB document IDs and saved in this browser's local storage, scoped to the competition. Only the selected IDs are saved—there are no accounts or server-side follow records. Selections restore when you reopen the competition in the same browser. If a saved lifter is absent from synchronized data, the dashboard reports the missing selection and lets you remove it.
+
+My Lifters cards show available flight, session, platform, bodyweight, and squat/bench/deadlift attempts 1–3, including the last successful synchronization time. Missing attempt values are left incomplete; observed `good`, `bad`, and `pending` statuses remain visually distinct. Follow/unfollow state does not trigger synchronization or live polling.
 
 The completed-meet fixture confirms these field names and relationships in stored data. Clock-state meanings, timer units, and when platforms update during an active meet still require observation during a live competition; no universal runtime behavior is assumed.
 

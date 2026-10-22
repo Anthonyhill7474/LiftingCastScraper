@@ -29,7 +29,8 @@ public sealed class CompetitionDetailsTests
                   "flight": "A",
                   "session": 1,
                   "lot": 12,
-                  "bodyWeight": 82.5
+                  "bodyWeight": 82.5,
+                  "platformId": "platform:1"
                 }
                 """),
             CreateDocument(
@@ -63,6 +64,7 @@ public sealed class CompetitionDetailsTests
         Assert.Equal(1, lifter.Session?.GetInt32());
         Assert.Equal(12, lifter.Lot?.GetInt32());
         Assert.Equal(82.5, lifter.BodyWeight?.GetDouble());
+        Assert.Equal("platform:1", lifter.PlatformId);
         Assert.Equal("Open", division.Name);
         Assert.Equal("83 kg", division.WeightClassName);
         Assert.Equal("Raw", division.RawOrEquipped);
@@ -97,6 +99,7 @@ public sealed class CompetitionDetailsTests
         Assert.Null(lifter.Session);
         Assert.Null(lifter.Lot);
         Assert.Null(lifter.BodyWeight);
+        Assert.Null(lifter.PlatformId);
         Assert.Empty(lifter.Divisions);
         var attempt = Assert.Single(lifter.Attempts);
         Assert.Null(attempt.AttemptNumber);

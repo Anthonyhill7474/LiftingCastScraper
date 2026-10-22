@@ -196,6 +196,7 @@ public static class CompetitionDetailsMapper
             GetValue(root, "session"),
             GetValue(root, "lot"),
             GetValue(root, "bodyWeight"),
+            GetString(root, "platformId"),
             attempts
                 .OrderBy(attempt => GetNumericValue(attempt.AttemptNumber))
                 .ThenBy(attempt => attempt.DocumentId, StringComparer.Ordinal)

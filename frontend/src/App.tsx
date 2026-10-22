@@ -1,4 +1,11 @@
 import { useEffect, useState } from 'react'
+import {
+  filterFollowedLifters,
+  getMissingFollowedLifterIds,
+  loadFollowedLifterIds,
+  saveFollowedLifterIds,
+  toggleFollowedLifter,
+} from './followedLifters.js'
 
 interface Competition {
   id: string
@@ -100,6 +107,7 @@ interface Lifter {
   session?: JsonValue
   lot?: JsonValue
   bodyWeight?: JsonValue
+  platformId?: string | null
   attempts: Attempt[]
 }
 
@@ -202,12 +210,32 @@ export default function App() {
   const [platformDashboardLoading, setPlatformDashboardLoading] = useState(false)
   const [detailsError, setDetailsError] = useState<string | null>(null)
   const [platformDashboardError, setPlatformDashboardError] = useState<string | null>(null)
+  const [followedSelection, setFollowedSelection] = useState<{
+    competitionId: string
+    lifterIds: string[]
+  }>({ competitionId: '', lifterIds: [] })
+  const [lifterView, setLifterView] = useState<'all' | 'followed'>('all')
+  const [followStorageError, setFollowStorageError] = useState<string | null>(null)
   const [notSynchronized, setNotSynchronized] = useState(false)
   const [backendDevelopment, setBackendDevelopment] = useState(false)
   const [refreshing, setRefreshing] = useState<'changes' | 'full' | null>(null)
   const [refreshError, setRefreshError] = useState<string | null>(null)
   const [refreshSummary, setRefreshSummary] = useState<SyncSummary | null>(null)
   const [detailsReloadKey, setDetailsReloadKey] = useState(0)
+  const followedLifterIds = selectedCompetition
+    && followedSelection.competitionId === selectedCompetition.id
+    ? followedSelection.lifterIds
+    : []
+  const followedLifterIdSet = new Set(followedLifterIds)
+  const availableLifterIds = new Set(details?.lifters.map((lifter) => lifter.documentId) ?? [])
+  const missingFollowedLifterIds = details
+    ? getMissingFollowedLifterIds(followedLifterIds, details.lifters)
+    : []
+  const liftersToDisplay = details
+    ? lifterView === 'all'
+      ? details.lifters
+      : filterFollowedLifters(details.lifters, followedLifterIds)
+    : []
   const today = new Date()
   const todayValue = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
   const sortedCompetitions = [...competitions].sort((left, right) => {
@@ -222,6 +250,30 @@ export default function App() {
     if (leftIsUpcoming !== rightIsUpcoming) return leftIsUpcoming ? -1 : 1
     return leftIsUpcoming ? leftDate - rightDate : rightDate - leftDate
   })
+
+  const persistFollowedLifterIds = (lifterIds: string[]) => {
+    if (!selectedCompetition) return
+
+    const uniqueIds = [...new Set(lifterIds)]
+    try {
+      const savedIds = saveFollowedLifterIds(
+        window.localStorage,
+        selectedCompetition.id,
+        uniqueIds,
+      )
+      setFollowedSelection({ competitionId: selectedCompetition.id, lifterIds: savedIds })
+      setFollowStorageError(null)
+    } catch {
+      setFollowedSelection({ competitionId: selectedCompetition.id, lifterIds: uniqueIds })
+      setFollowStorageError('Followed lifters could not be saved in this browser.')
+    }
+  }
+
+  const toggleFollowedLifterId = (lifterId: string) => {
+    persistFollowedLifterIds(
+      toggleFollowedLifter(followedLifterIds, lifterId),
+    )
+  }
 
   useEffect(() => {
     const fetchCompetitions = async () => {
@@ -377,6 +429,9 @@ export default function App() {
                 setDetails(null)
                 setSelectedCompetition(null)
                 setPlatformDashboard(null)
+                setFollowedSelection({ competitionId: '', lifterIds: [] })
+                setFollowStorageError(null)
+                setLifterView('all')
                 setRefreshSummary(null)
                 setRefreshError(null)
               }}
@@ -514,77 +569,177 @@ export default function App() {
                 </div>
               )}
             </section>
-            {details && details.lifters.length === 0 && (
-              <div className="state empty">No lifter records were found in the synchronized data.</div>
-            )}
-            {details && details.lifters.length > 0 && (
-              <div className="lifter-groups">
-                {getLifterGroups(details.lifters).map((group) => (
-                  <section className="flight-group" key={group.label}>
-                    <h3>{group.label}</h3>
-                    <div className="lifter-list">
-                      {group.lifters.map((lifter) => (
-                        <article className="lifter-card" key={lifter.documentId}>
-                          <div className="lifter-heading">
-                            <div>
-                              <h4>{lifter.name || 'Unnamed lifter'}</h4>
-                              <p className="division-label">
-                                {lifter.divisions.length > 0
-                                  ? lifter.divisions.map((division) => (
-                                      [
-                                        division.name || division.divisionId || 'Division',
-                                        division.weightClassName,
-                                        division.rawOrEquipped,
-                                      ].filter(Boolean).join(' · ')
-                                    )).join(', ')
-                                  : 'Division unavailable'}
-                              </p>
-                            </div>
-                            <div className="lifter-meta">
-                              <span>Lot {formatValue(lifter.lot)}</span>
-                              <span>Bodyweight {formatValue(lifter.bodyWeight)}</span>
-                            </div>
-                          </div>
-                          <div className="attempt-table-wrap">
-                            <table className="attempt-table">
-                              <thead>
-                                <tr>
-                                  <th scope="col">Lift</th>
-                                  <th scope="col">Attempt 1</th>
-                                  <th scope="col">Attempt 2</th>
-                                  <th scope="col">Attempt 3</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {([
-                                  ['squat', 'Squat'],
-                                  ['bench', 'Bench'],
-                                  ['deadlift', 'Deadlift'],
-                                ] as const).map(([liftType, label]) => (
-                                  <tr key={liftType}>
-                                    <th scope="row">{label}</th>
-                                    {[1, 2, 3].map((attemptNumber) => {
-                                      const attempt = getAttemptForSlot(lifter, liftType, attemptNumber)
-                                      return (
-                                        <td
-                                          key={attemptNumber}
-                                          className={`attempt-result ${getAttemptStatus(attempt)}`}
-                                        >
-                                          {describeAttempt(attempt)}
-                                        </td>
-                                      )
-                                    })}
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
-                ))}
-              </div>
+            {details && (
+              <section className="lifter-dashboard" aria-labelledby="lifter-dashboard-heading">
+                <div className="lifter-dashboard-heading">
+                  <div>
+                    <h3 id="lifter-dashboard-heading">
+                      {lifterView === 'followed' ? 'My Lifters' : 'Competition lifters'}
+                    </h3>
+                    <p>Last successful sync: {formatSyncedAt(details.lastSyncedAtUtc)}</p>
+                  </div>
+                  <div className="lifter-view-switch" role="group" aria-label="Lifter list view">
+                    <button
+                      type="button"
+                      className="lifter-view-button"
+                      aria-pressed={lifterView === 'all'}
+                      onClick={() => setLifterView('all')}
+                    >
+                      All lifters ({details.lifters.length})
+                    </button>
+                    <button
+                      type="button"
+                      className="lifter-view-button"
+                      aria-pressed={lifterView === 'followed'}
+                      onClick={() => setLifterView('followed')}
+                    >
+                      My Lifters ({followedLifterIds.length})
+                    </button>
+                  </div>
+                </div>
+                <p className="follow-storage-note">
+                  Followed lifters are saved in this browser for this competition only.
+                </p>
+                {followStorageError && (
+                  <p className="follow-storage-error" role="alert">{followStorageError}</p>
+                )}
+                {lifterView === 'followed' && missingFollowedLifterIds.length > 0 && (
+                  <div className="followed-missing" role="status">
+                    <span>
+                      {missingFollowedLifterIds.length} saved {missingFollowedLifterIds.length === 1 ? 'lifter is' : 'lifters are'} not in the current synchronized data.
+                    </span>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => persistFollowedLifterIds(
+                        followedLifterIds.filter((id) => availableLifterIds.has(id)),
+                      )}
+                    >
+                      Remove missing selections
+                    </button>
+                  </div>
+                )}
+                {lifterView === 'followed' && liftersToDisplay.length === 0 && (
+                  <div className="state empty">
+                    <strong>
+                      {followedLifterIds.length === 0
+                        ? 'No lifters followed in this competition.'
+                        : 'No followed lifters are available in synchronized data.'}
+                    </strong>
+                    <span>
+                      {followedLifterIds.length === 0
+                        ? 'Browse all lifters and select Follow beside each lifter you coach.'
+                        : 'A saved lifter may have been removed or may not be present in the current snapshot.'}
+                    </span>
+                    <button
+                      type="button"
+                      className="lifter-view-button"
+                      onClick={() => setLifterView('all')}
+                    >
+                      Browse all lifters
+                    </button>
+                  </div>
+                )}
+                {lifterView === 'all' && details.lifters.length === 0 && (
+                  <div className="state empty">No lifter records were found in the synchronized data.</div>
+                )}
+                {liftersToDisplay.length > 0 && (
+                  <div className="lifter-groups">
+                    {getLifterGroups(liftersToDisplay).map((group) => (
+                      <section className="flight-group" key={group.label}>
+                        <h3>{group.label}</h3>
+                        <div className="lifter-list">
+                          {group.lifters.map((lifter) => {
+                            const isFollowed = followedLifterIdSet.has(lifter.documentId)
+                            const platformLabel = lifter.platformId
+                              ? details.platforms.find(
+                                  (platform) => platform.documentId === lifter.platformId,
+                                )?.name || lifter.platformId
+                              : '—'
+                            const lifterName = lifter.name || 'Unnamed lifter'
+
+                            return (
+                              <article
+                                className={`lifter-card ${isFollowed ? 'is-followed' : ''}`}
+                                key={lifter.documentId}
+                              >
+                                <div className="lifter-heading">
+                                  <div>
+                                    <h4>{lifterName}</h4>
+                                    <p className="division-label">
+                                      {lifter.divisions.length > 0
+                                        ? lifter.divisions.map((division) => (
+                                            [
+                                              division.name || division.divisionId || 'Division',
+                                              division.weightClassName,
+                                              division.rawOrEquipped,
+                                            ].filter(Boolean).join(' · ')
+                                          )).join(', ')
+                                        : 'Division unavailable'}
+                                    </p>
+                                  </div>
+                                  <div className="lifter-card-controls">
+                                    <div className="lifter-meta">
+                                      <span>Flight {lifter.flight || '—'}</span>
+                                      <span>Session {formatValue(lifter.session)}</span>
+                                      <span>Platform {platformLabel}</span>
+                                      <span>Lot {formatValue(lifter.lot)}</span>
+                                      <span>Bodyweight {formatValue(lifter.bodyWeight)}</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className={`follow-button ${isFollowed ? 'following' : ''}`}
+                                      aria-pressed={isFollowed}
+                                      aria-label={`${isFollowed ? 'Unfollow' : 'Follow'} ${lifterName}`}
+                                      onClick={() => toggleFollowedLifterId(lifter.documentId)}
+                                    >
+                                      {isFollowed ? 'Unfollow' : 'Follow'}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="attempt-table-wrap">
+                                  <table className="attempt-table">
+                                    <thead>
+                                      <tr>
+                                        <th scope="col">Lift</th>
+                                        <th scope="col">Attempt 1</th>
+                                        <th scope="col">Attempt 2</th>
+                                        <th scope="col">Attempt 3</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {([
+                                        ['squat', 'Squat'],
+                                        ['bench', 'Bench'],
+                                        ['deadlift', 'Deadlift'],
+                                      ] as const).map(([liftType, label]) => (
+                                        <tr key={liftType}>
+                                          <th scope="row">{label}</th>
+                                          {[1, 2, 3].map((attemptNumber) => {
+                                            const attempt = getAttemptForSlot(lifter, liftType, attemptNumber)
+                                            return (
+                                              <td
+                                                key={attemptNumber}
+                                                className={`attempt-result ${getAttemptStatus(attempt)}`}
+                                              >
+                                                {describeAttempt(attempt)}
+                                              </td>
+                                            )
+                                          })}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </article>
+                            )
+                          })}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                )}
+              </section>
             )}
           </section>
         ) : (
@@ -619,6 +774,20 @@ export default function App() {
                         onClick={() => {
                           setDetails(null)
                           setPlatformDashboard(null)
+                          let savedIds: string[] = []
+                          try {
+                            savedIds = loadFollowedLifterIds(window.localStorage, competition.id)
+                            setFollowStorageError(null)
+                          } catch {
+                            setFollowStorageError(
+                              'Saved followed lifters could not be read from this browser.',
+                            )
+                          }
+                          setFollowedSelection({
+                            competitionId: competition.id,
+                            lifterIds: savedIds,
+                          })
+                          setLifterView(savedIds.length > 0 ? 'followed' : 'all')
                           setRefreshSummary(null)
                           setRefreshError(null)
                           setSelectedCompetition(competition)

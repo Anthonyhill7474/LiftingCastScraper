@@ -179,6 +179,7 @@ public sealed record CompetitionLifterDto(
     JsonElement? Session,
     JsonElement? Lot,
     JsonElement? BodyWeight,
+    string? PlatformId,
     IReadOnlyList<CompetitionAttemptDto> Attempts);
 
 public sealed record CompetitionDivisionDto(

@@ -377,6 +377,97 @@ body {
   padding-bottom: 0.5rem;
 }
 
+.lifter-dashboard {
+  margin: 1.5rem 0 2rem;
+}
+
+.lifter-dashboard-heading {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  justify-content: space-between;
+}
+
+.lifter-dashboard-heading h3 {
+  color: #4d5db3;
+  font-size: 1.25rem;
+  margin-bottom: 0.2rem;
+}
+
+.lifter-dashboard-heading p,
+.follow-storage-note {
+  color: #666;
+  font-size: 0.88rem;
+}
+
+.lifter-view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.lifter-view-button,
+.follow-button {
+  background: #fff;
+  border: 1px solid #4d5db3;
+  border-radius: 6px;
+  color: #4d5db3;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  min-height: 42px;
+  padding: 0.55rem 0.85rem;
+}
+
+.lifter-view-button[aria-pressed='true'] {
+  background: #4d5db3;
+  color: #fff;
+}
+
+.lifter-view-button:focus-visible,
+.follow-button:focus-visible,
+.text-button:focus-visible {
+  outline: 3px solid #344db8;
+  outline-offset: 3px;
+}
+
+.follow-storage-note {
+  margin: 0.65rem 0 0.9rem;
+}
+
+.follow-storage-error {
+  background: #ffebee;
+  border-radius: 4px;
+  color: #b71c1c;
+  margin: 0.65rem 0;
+  padding: 0.6rem 0.75rem;
+}
+
+.followed-missing {
+  align-items: center;
+  background: #fff8e1;
+  border-radius: 6px;
+  color: #6d4c00;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding: 0.65rem 0.8rem;
+}
+
+.text-button {
+  background: none;
+  border: 0;
+  color: #4d5db3;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.4rem 0.2rem;
+  text-decoration: underline;
+}
+
 .lifter-list {
   display: grid;
   gap: 1rem;
@@ -390,6 +481,10 @@ body {
   padding: 1rem;
 }
 
+.lifter-card.is-followed {
+  border-left: 4px solid #667eea;
+}
+
 .lifter-heading {
   align-items: flex-start;
   display: flex;
@@ -397,6 +492,13 @@ body {
   gap: 0.5rem 1rem;
   justify-content: space-between;
   margin-bottom: 0.8rem;
+}
+
+.lifter-card-controls {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 
 .lifter-heading h4 {
@@ -415,6 +517,15 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
+}
+
+.follow-button {
+  align-self: flex-end;
+  min-width: 92px;
+}
+
+.follow-button.following {
+  background: #f5f6fc;
 }
 
 .attempt-table-wrap {
@@ -497,6 +608,28 @@ body {
   .details-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .lifter-dashboard-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .lifter-view-switch {
+    width: 100%;
+  }
+
+  .lifter-view-button {
+    flex: 1;
+  }
+
+  .lifter-card-controls {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .follow-button {
+    align-self: stretch;
   }
 
   .platform-runtime-values {
