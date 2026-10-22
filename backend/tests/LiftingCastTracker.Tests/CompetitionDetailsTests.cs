@@ -196,6 +196,110 @@ public sealed class CompetitionDetailsTests
     }
 
     [Fact]
+    public void MapsConfirmedAndProjectedPointsPerDivisionAndKeepsBenchOnlyApplicability()
+    {
+        var documents = new[]
+        {
+            CreateDocument(
+                "division:power",
+                """
+                {
+                  "name": "Powerlifting",
+                  "gender": "MALE",
+                  "rawOrEquipped": "RAW",
+                  "lifts": { "squat": true, "bench": true, "dead": true },
+                  "weightClasses": {
+                    "weight:83": { "_id": "weight:83", "name": "83 kg" }
+                  }
+                }
+                """),
+            CreateDocument(
+                "division:bench",
+                """
+                {
+                  "name": "Bench",
+                  "gender": "MALE",
+                  "rawOrEquipped": "EQUIPPED",
+                  "lifts": { "squat": false, "bench": true, "dead": false },
+                  "weightClasses": {
+                    "weight:120": { "_id": "weight:120", "name": "120 kg" }
+                  }
+                }
+                """),
+            CreateDocument("meet:metadata", """{"units":"KG"}"""),
+            CreateDocument(
+                "lifter:scored",
+                """
+                {
+                  "name": "Scored lifter",
+                  "bodyWeight": 100,
+                  "divisions": [
+                    { "divisionId": "division:power", "declaredAwardsWeightClassId": "weight:83" },
+                    { "divisionId": "division:bench", "declaredAwardsWeightClassId": "weight:120" }
+                  ]
+                }
+                """),
+            CreateDocument("attempt:squat", """{"lifterId":"lifter:scored","liftName":"squat","attemptNumber":"1","weight":200,"result":"good"}"""),
+            CreateDocument("attempt:squat-pending", """{"lifterId":"lifter:scored","liftName":"squat","attemptNumber":"2","weight":210}"""),
+            CreateDocument("attempt:bench", """{"lifterId":"lifter:scored","liftName":"bench","attemptNumber":"1","weight":100,"result":"good"}"""),
+            CreateDocument("attempt:dead", """{"lifterId":"lifter:scored","liftName":"dead","attemptNumber":"1","weight":200,"result":"good"}""")
+        };
+
+        var details = CompetitionDetailsMapper.Create(
+            new Competition { Id = "meet-1", Name = "Scored meet" },
+            documents,
+            DateTimeOffset.UtcNow);
+        var lifter = Assert.Single(details.Lifters);
+        var powerlifting = Assert.Single(lifter.Divisions, division => division.DivisionId == "division:power");
+        var bench = Assert.Single(lifter.Divisions, division => division.DivisionId == "division:bench");
+
+        Assert.Equal(63.164622576551416, powerlifting.PointsScores!["ipf-gl"].ConfirmedScore!.Value, 9);
+        Assert.Equal(64.42791502808245, powerlifting.PointsScores["ipf-gl"].ProjectedScore!.Value, 9);
+        Assert.NotNull(powerlifting.PointsScores["dots"].ConfirmedScore);
+        Assert.NotNull(bench.PointsScores!["ipf-gl"].ConfirmedScore);
+        Assert.Null(bench.PointsScores["dots"].ConfirmedScore);
+        Assert.Null(bench.PointsScores["wilks-1"].ConfirmedScore);
+    }
+
+    [Fact]
+    public void LeavesScoresUnavailableWhenBodyweightOrCompletePerformanceIsMissing()
+    {
+        var documents = new[]
+        {
+            CreateDocument(
+                "division:power",
+                """
+                {
+                  "gender": "FEMALE",
+                  "rawOrEquipped": "RAW",
+                  "lifts": { "squat": true, "bench": true, "dead": true },
+                  "weightClasses": {}
+                }
+                """),
+            CreateDocument("meet:metadata", """{"units":"KG"}"""),
+            CreateDocument(
+                "lifter:missing",
+                """{"divisions":[{"divisionId":"division:power","declaredAwardsWeightClassId":"missing"}]}"""),
+            CreateDocument("attempt:squat", """{"lifterId":"lifter:missing","liftName":"squat","attemptNumber":"1","weight":100,"result":"good"}"""),
+            CreateDocument("attempt:bench", """{"lifterId":"lifter:missing","liftName":"bench","attemptNumber":"1","weight":80,"result":"good"}""")
+        };
+
+        var details = CompetitionDetailsMapper.Create(
+            new Competition { Id = "meet-1", Name = "Incomplete meet" },
+            documents,
+            DateTimeOffset.UtcNow);
+        var division = Assert.Single(Assert.Single(details.Lifters).Divisions);
+
+        Assert.All(
+            division.PointsScores!.Values,
+            score =>
+            {
+                Assert.Null(score.ConfirmedScore);
+                Assert.Null(score.ProjectedScore);
+            });
+    }
+
+    [Fact]
     public void SerializedDetailsExposeOnlyExplicitPrivacySafeDtoFields()
     {
         var competition = new Competition { Id = "meet-1", Name = "Privacy Test" };

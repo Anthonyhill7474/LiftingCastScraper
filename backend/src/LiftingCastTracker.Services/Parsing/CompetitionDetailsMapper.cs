@@ -205,10 +205,23 @@ public static class CompetitionDetailsMapper
             .OrderBy(attempt => GetNumericValue(attempt.AttemptNumber))
             .ThenBy(attempt => attempt.DocumentId, StringComparer.Ordinal)
             .ToArray();
+        var bodyWeightKg = CompetitionPerformanceCalculator.TryGetKilograms(
+            GetValue(root, "bodyWeight"),
+            units,
+            out var parsedBodyWeightKg)
+            ? parsedBodyWeightKg
+            : (double?)null;
+        var mappedDivisions = divisions
+            .Select(division => division with
+            {
+                PointsScores = CreatePointsScores(mappedAttempts, units, bodyWeightKg, division)
+            })
+            .ToArray();
+
         return new CompetitionLifterDto(
             lifter.Document.DocumentId,
             GetString(root, "name"),
-            divisions,
+            mappedDivisions,
             GetString(root, "flight"),
             GetValue(root, "session"),
             GetValue(root, "lot"),
@@ -216,6 +229,39 @@ public static class CompetitionDetailsMapper
             GetString(root, "platformId"),
             CompetitionPerformanceCalculator.Calculate(mappedAttempts, units),
             mappedAttempts);
+    }
+
+    private static IReadOnlyDictionary<string, CompetitionPointsScoreDto> CreatePointsScores(
+        IReadOnlyList<CompetitionAttemptDto> attempts,
+        string? units,
+        double? bodyWeightKg,
+        CompetitionDivisionDto division)
+    {
+        var performance = CompetitionPerformanceCalculator.Calculate(attempts, units, division.Lifts);
+        var hasProjection = CompetitionPerformanceCalculator.HasPendingSelectedAttempt(
+            attempts,
+            units,
+            division.Lifts);
+        return CompetitionPointsCalculator.SystemIds.ToDictionary(
+            systemId => systemId,
+            systemId => new CompetitionPointsScoreDto(
+                CompetitionPointsCalculator.Calculate(
+                    systemId,
+                    bodyWeightKg,
+                    performance.EligibleCompleteTotalKg,
+                    division.Gender,
+                    division.RawOrEquipped,
+                    division.Lifts),
+                hasProjection
+                    ? CompetitionPointsCalculator.Calculate(
+                        systemId,
+                        bodyWeightKg,
+                        performance.BaselineProjectedEligibleTotalKg,
+                        division.Gender,
+                        division.RawOrEquipped,
+                        division.Lifts)
+                    : null),
+            StringComparer.Ordinal);
     }
 
     private static bool IsLifter(JsonElement document) =>

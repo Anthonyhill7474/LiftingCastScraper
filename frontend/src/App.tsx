@@ -19,6 +19,8 @@ import {
   savePointsSystem,
 } from './pointsSystems.js'
 import {
+  getCompatibleBestOverallDivision,
+  getEligibleBestOverallOpponents,
   getEligibleStrategyOpponents,
   resetScenarios,
   updateScenario,
@@ -64,16 +66,27 @@ interface CompetitionStrategyStanding {
   lifterId: string
   name?: string | null
   bodyWeight?: JsonValue
+  weightClassId?: string | null
+  weightClassName?: string | null
   currentPerformance: LifterPerformance
   scenarioPerformance: LifterPerformance
+  currentConfirmedPoints?: number | null
+  projectedPoints?: number | null
   provisionalPlace?: number | null
   isTied: boolean
 }
 
 interface CompetitionStrategyResult {
   divisionId: string
-  weightClassId: string
+  weightClassId?: string | null
+  mode: 'weight-class' | 'best-overall'
+  pointsSystem: string
   standings: CompetitionStrategyStanding[]
+}
+
+interface DivisionPointsScore {
+  confirmedScore: number | null
+  projectedScore: number | null
 }
 
 interface SyncSummary {
@@ -139,6 +152,7 @@ interface Division {
   gender?: string | null
   rawOrEquipped?: string | null
   scoreBy?: string | null
+  pointsScores?: Record<string, DivisionPointsScore> | null
   lifts: {
     squat?: boolean | null
     bench?: boolean | null
@@ -221,6 +235,12 @@ function formatKg(value?: number | null): string {
     : `${value.toFixed(2)} kg`
 }
 
+function formatPoints(value?: number | null): string {
+  return value === undefined || value === null || !Number.isFinite(value)
+    ? 'Unavailable'
+    : value.toFixed(2)
+}
+
 function canEditScenarioAttempt(attempt: Attempt, units?: string | null): boolean {
   const result = typeof attempt.result === 'string' ? attempt.result.trim().toLowerCase() : ''
   const weight = typeof attempt.weight === 'string' || typeof attempt.weight === 'number'
@@ -237,6 +257,21 @@ function canEditScenarioAttempt(attempt: Attempt, units?: string | null): boolea
 
 function getScenarioKey(lifterId: string, attemptId: string): string {
   return `${lifterId}:${attemptId}`
+}
+
+function getStrategyDivision(
+  lifter: Lifter,
+  selectedDivision: Division | undefined,
+  mode: 'weight-class' | 'best-overall',
+): Division | undefined {
+  if (!selectedDivision?.divisionId || !selectedDivision.weightClassId) return undefined
+  if (mode === 'best-overall') {
+    return getCompatibleBestOverallDivision(lifter, selectedDivision) ?? undefined
+  }
+  return lifter.divisions.find((division) =>
+    division.divisionId === selectedDivision.divisionId
+      && division.weightClassId === selectedDivision.weightClassId,
+  )
 }
 
 export default function App() {
@@ -317,6 +352,7 @@ export default function App() {
     division.divisionId
       && division.weightClassId
       && division.gender
+      && division.rawOrEquipped
       && division.lifts?.squat !== null
       && division.lifts?.squat !== undefined
       && division.lifts?.bench !== null
@@ -331,11 +367,17 @@ export default function App() {
     ? `${selectedStrategyDivision.divisionId}|${selectedStrategyDivision.weightClassId}`
     : ''
   const availableStrategyOpponents = details
-    ? getEligibleStrategyOpponents(
-        details.lifters,
-        activeStrategistId,
-        selectedStrategyDivision,
-      )
+    ? strategyMode === 'best-overall'
+      ? getEligibleBestOverallOpponents(
+          details.lifters,
+          activeStrategistId,
+          selectedStrategyDivision,
+        )
+      : getEligibleStrategyOpponents(
+          details.lifters,
+          activeStrategistId,
+          selectedStrategyDivision,
+        )
     : []
   const activeStrategyOpponentIds = strategyOpponentIds.filter((id) =>
     id !== activeStrategistId
@@ -359,10 +401,15 @@ export default function App() {
     && selectedStrategyDivision
     && activeStrategistId
     ? {
+        mode: strategyMode,
+        pointsSystem,
         divisionId: selectedStrategyDivision.divisionId,
         weightClassId: selectedStrategyDivision.weightClassId,
         lifters: [activeStrategistId, ...activeStrategyOpponentIds].map((lifterId) => {
           const lifter = details.lifters.find((item) => item.documentId === lifterId)
+          const division = lifter
+            ? getStrategyDivision(lifter, selectedStrategyDivision, strategyMode)
+            : undefined
           const attempts = lifter?.attempts.flatMap((attempt) => {
             const scenario = strategyScenarios[getScenarioKey(lifterId, attempt.documentId)]
             const weight = Number(scenario?.weight)
@@ -373,7 +420,12 @@ export default function App() {
               ? [{ attemptId: attempt.documentId, weight, result: scenario.result }]
               : []
           }) ?? []
-          return { lifterId, attempts }
+          return {
+            lifterId,
+            divisionId: division?.divisionId,
+            weightClassId: division?.weightClassId,
+            attempts,
+          }
         }),
       }
     : null
@@ -817,25 +869,34 @@ export default function App() {
                 </div>
                 {pointsSystemError && <p className="follow-storage-error" role="alert">{pointsSystemError}</p>}
                 <p className="strategy-limitation">
-                  {POINTS_SYSTEMS.find((system) => system.id === pointsSystem)?.label} scores are unavailable because the original coefficient reference is not in this repository. No coefficients are estimated.
+                  Scores use the supplied legacy coefficient reference and are not a claim about current federation rules. Live lifting order remains unverified.
                 </p>
                 <div className="strategy-mode-switch" role="group" aria-label="Strategy comparison mode">
                   <button
                     type="button"
                     className="lifter-view-button"
                     aria-pressed={strategyMode === 'weight-class'}
-                    onClick={() => setStrategyMode('weight-class')}
+                    onClick={() => {
+                      setStrategyMode('weight-class')
+                      setSelectedOpponentId('')
+                      setStrategyOpponentIds([])
+                      setStrategyScenarios({})
+                    }}
                   >
                     Weight Class
                   </button>
                   <button
                     type="button"
                     className="lifter-view-button"
-                    disabled
-                    aria-disabled="true"
-                    title="Requires verified scoring coefficients."
+                    aria-pressed={strategyMode === 'best-overall'}
+                    onClick={() => {
+                      setStrategyMode('best-overall')
+                      setSelectedOpponentId('')
+                      setStrategyOpponentIds([])
+                      setStrategyScenarios({})
+                    }}
                   >
-                    Best Overall unavailable
+                    Best Overall
                   </button>
                 </div>
                 {followedInCompetition.length === 0 ? (
@@ -880,7 +941,11 @@ export default function App() {
                       </label>
                       {strategyLifter && (
                         <label>
-                          <span>Eligible division and weight class</span>
+                          <span>
+                            {strategyMode === 'best-overall'
+                              ? 'Scoring category and primary weight class'
+                              : 'Eligible division and weight class'}
+                          </span>
                           <select
                             value={activeStrategyDivisionKey}
                             onChange={(event) => {
@@ -919,25 +984,46 @@ export default function App() {
                     )}
                     {selectedStrategyDivision && (
                       <>
+                        {strategyMode === 'best-overall' && (
+                          <p className="strategy-limitation">
+                            Opponents may be in other weight classes, but must match gender, equipment, and event category. This is a provisional points comparison, not an official placing.
+                          </p>
+                        )}
                         <div className="strategy-opponent-controls">
                           <label>
-                            <span>Opponent in the same division and weight class</span>
+                            <span>
+                              {strategyMode === 'best-overall'
+                                ? 'Compatible opponent across weight classes'
+                                : 'Opponent in the same division and weight class'}
+                            </span>
                             <select
                               value={activeSelectedOpponentId}
                               onChange={(event) => setSelectedOpponentId(event.target.value)}
                             >
                               <option value="">Select an opponent</option>
-                              {eligibleStrategyOpponents.map((lifter) => (
-                                <option key={lifter.documentId} value={lifter.documentId}>
-                                  {lifter.name || lifter.documentId}
-                                </option>
-                              ))}
+                              {eligibleStrategyOpponents.map((lifter) => {
+                                const division = getStrategyDivision(
+                                  lifter,
+                                  selectedStrategyDivision,
+                                  strategyMode,
+                                )
+                                const weightClass = division?.weightClassName
+                                  || division?.weightClassId
+                                return (
+                                  <option key={lifter.documentId} value={lifter.documentId}>
+                                    {lifter.name || lifter.documentId}
+                                    {strategyMode === 'best-overall' && weightClass
+                                      ? ` · ${weightClass}`
+                                      : ''}
+                                  </option>
+                                )
+                              })}
                             </select>
                           </label>
                           <button
                             type="button"
                             className="lifter-view-button"
-                            disabled={!activeSelectedOpponentId}
+                            disabled={!activeSelectedOpponentId || activeStrategyOpponentIds.length >= 19}
                             onClick={() => {
                               if (!activeSelectedOpponentId) return
                               setStrategyOpponentIds((current) => [...current, activeSelectedOpponentId])
@@ -974,7 +1060,9 @@ export default function App() {
                           </div>
                         )}
                         <p className="strategy-limitation">
-                          Comparisons require the same division document, weight-class ID, gender, and lifting category—not just the same numerical weight limit. Results are provisional by projected total and do not apply federation tie-break rules.
+                          {strategyMode === 'best-overall'
+                            ? 'Best Overall compares compatible gender, equipment, and event categories across weight classes. Rankings are provisional score comparisons, not official award placings.'
+                            : 'Weight-class comparisons require the same division document, weight-class ID, gender, equipment category, and lift configuration. Rankings are provisional by projected total.'}
                         </p>
                         <div className="scenario-actions">
                           <h4>Hypothetical remaining attempts</h4>
@@ -1058,14 +1146,24 @@ export default function App() {
                         {strategyResult && (
                           <div className="strategy-results">
                             <h4>
-                              {selectedStrategyDivision.name || 'Selected division'} · {selectedStrategyDivision.weightClassName || selectedStrategyDivision.weightClassId}
+                              {strategyResult.mode === 'best-overall'
+                                ? 'Best Overall · compatible categories'
+                                : `${selectedStrategyDivision.name || 'Selected division'} · ${selectedStrategyDivision.weightClassName || selectedStrategyDivision.weightClassId}`}
                             </h4>
-                            <p>Provisional projected ranking · values in kilograms</p>
+                            <p>
+                              {strategyResult.mode === 'best-overall'
+                                ? 'Provisional points ranking across weight classes; this is not an official award placing.'
+                                : 'Provisional projected-total ranking; values in kilograms and not an official placing.'}
+                              {' '}Scoring system: {POINTS_SYSTEMS.find((system) => system.id === strategyResult.pointsSystem)?.label}.
+                            </p>
                             <div className="attempt-table-wrap">
                               <table className="strategy-table">
                                 <thead>
                                   <tr>
                                     <th scope="col">Athlete</th>
+                                    {strategyResult.mode === 'best-overall' && (
+                                      <th scope="col">Weight class</th>
+                                    )}
                                     <th scope="col">Bodyweight</th>
                                     <th scope="col">Best squat</th>
                                     <th scope="col">Best bench</th>
@@ -1074,6 +1172,8 @@ export default function App() {
                                     <th scope="col">Current eligible total</th>
                                     <th scope="col">Baseline projection</th>
                                     <th scope="col">Scenario projection</th>
+                                    <th scope="col">Confirmed points</th>
+                                    <th scope="col">Projected points</th>
                                     <th scope="col">Provisional place</th>
                                   </tr>
                                 </thead>
@@ -1081,6 +1181,9 @@ export default function App() {
                                   {strategyResult.standings.map((standing) => (
                                     <tr key={standing.lifterId}>
                                       <th scope="row">{standing.name || standing.lifterId}</th>
+                                      {strategyResult.mode === 'best-overall' && (
+                                        <td>{standing.weightClassName || standing.weightClassId || 'Unavailable'}</td>
+                                      )}
                                       <td>{formatValue(standing.bodyWeight)} {details.units || ''}</td>
                                       <td>{formatKg(standing.currentPerformance.bestSquatKg)}</td>
                                       <td>{formatKg(standing.currentPerformance.bestBenchKg)}</td>
@@ -1089,6 +1192,8 @@ export default function App() {
                                       <td>{formatKg(standing.currentPerformance.eligibleCompleteTotalKg)}</td>
                                       <td>{formatKg(standing.currentPerformance.baselineProjectedEligibleTotalKg)}</td>
                                       <td>{formatKg(standing.scenarioPerformance.baselineProjectedEligibleTotalKg)}</td>
+                                      <td>{formatPoints(standing.currentConfirmedPoints)}</td>
+                                      <td>{formatPoints(standing.projectedPoints)}</td>
                                       <td>
                                         {standing.provisionalPlace
                                           ? `${standing.provisionalPlace}${standing.isTied ? ' · tied' : ''}`
@@ -1235,6 +1340,35 @@ export default function App() {
                                     </button>
                                   </div>
                                 </div>
+                                <div className="division-points-list">
+                                  <strong>
+                                    {POINTS_SYSTEMS.find((system) => system.id === pointsSystem)?.label} points
+                                  </strong>
+                                  <span className="follow-storage-note">
+                                    Projected scores assume unresolved selected weights succeed.
+                                  </span>
+                                  {lifter.divisions.length === 0 ? (
+                                    <span>Score unavailable: division category is missing.</span>
+                                  ) : (
+                                    lifter.divisions.map((division, index) => {
+                                      const score = division.pointsScores?.[pointsSystem]
+                                      const divisionLabel = [
+                                        division.name || division.divisionId || 'Division',
+                                        division.weightClassName || division.weightClassId,
+                                      ].filter(Boolean).join(' · ')
+                                      return (
+                                        <div
+                                          className="division-points-row"
+                                          key={`${division.divisionId}|${division.weightClassId}|${index}`}
+                                        >
+                                          <strong>{divisionLabel}</strong>
+                                          <span>Confirmed: {formatPoints(score?.confirmedScore)}</span>
+                                          <span>Projected: {formatPoints(score?.projectedScore)}</span>
+                                        </div>
+                                      )
+                                    })
+                                  )}
+                                </div>
                                 {lifterView === 'followed' && (
                                   <div className="performance-summary">
                                     <strong>Performance estimates (kg)</strong>
@@ -1245,9 +1379,6 @@ export default function App() {
                                     <span>Complete three-lift total: {formatKg(lifter.performance.completeThreeLiftTotalKg)}</span>
                                     <span>
                                       Baseline projected three-lift total (pending selected weights assumed good): {formatKg(lifter.performance.baselineProjectedThreeLiftTotalKg)}
-                                    </span>
-                                    <span>
-                                      {POINTS_SYSTEMS.find((system) => system.id === pointsSystem)?.label} score: unavailable until the verified coefficient reference is supplied.
                                     </span>
                                     <span>Next known attempt: order unavailable; live queue order is unverified.</span>
                                   </div>

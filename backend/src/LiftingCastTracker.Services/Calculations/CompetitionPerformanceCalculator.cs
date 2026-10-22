@@ -72,6 +72,31 @@ public static class CompetitionPerformanceCalculator
             && TryGetLiftKey(attempt.LiftName, out _);
     }
 
+    public static bool TryGetKilograms(
+        JsonElement? value,
+        string? units,
+        out double kilograms) =>
+        TryGetKilograms(value, GetKilogramsPerUnit(units), out kilograms);
+
+    public static bool HasPendingSelectedAttempt(
+        IReadOnlyList<CompetitionAttemptDto> attempts,
+        string? units,
+        CompetitionLiftConfigurationDto? lifts)
+    {
+        var enabledLifts = GetEnabledLifts(lifts);
+        var kilogramsPerUnit = GetKilogramsPerUnit(units);
+        if (enabledLifts.Count == 0 || kilogramsPerUnit is null)
+        {
+            return false;
+        }
+
+        return attempts.Any(attempt =>
+            TryGetLiftKey(attempt.LiftName, out var lift)
+            && enabledLifts.Contains(lift, StringComparer.Ordinal)
+            && !IsFinalResult(GetString(attempt.Result))
+            && TryGetKilograms(attempt.Weight, kilogramsPerUnit, out _));
+    }
+
     public static CompetitionAttemptDto ApplyScenario(
         CompetitionAttemptDto attempt,
         CompetitionAttemptScenario scenario)

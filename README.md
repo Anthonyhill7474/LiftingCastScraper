@@ -211,7 +211,7 @@ Open a competition from the directory to view its locally synchronized lifters a
 curl -k https://localhost:7251/api/competitions/COMPETITION_ID/details
 ```
 
-The response includes competition metadata, the last synchronization time, platform runtime summaries, and lifters joined to attempts by `lifterId`. Lifter details include available divisions, flight/session/lot, bodyweight, platform ID, and attempt slots. Missing source fields remain null or absent; totals, placings, and scores are not calculated. Dates of birth, payment/contact data, and document change histories are not returned.
+The response includes competition metadata, the last synchronization time, platform runtime summaries, and lifters joined to attempts by `lifterId`. Lifter details include available divisions, flight/session/lot, bodyweight, platform ID, attempt slots, and numeric confirmed/projected scores for each division membership. Missing source fields remain null or absent. Dates of birth, payment/contact data, and document change histories are not returned.
 
 The local completed-meet fixture uses string attempt numbers `"1"`–`"3"` and lift names `squat`, `bench`, and `dead`; the frontend maps these into the three lift rows and selects attempts numerically. Its observed result labels `good` and `bad` are shown with success/failure colors. An explicit `pending` result is highlighted separately; a missing result is shown as “No result” rather than inferred to mean a successful or failed lift. No upcoming `_all_docs` fixture is available locally, so upcoming-state behavior is covered with incomplete mocked records rather than a second full meet dataset.
 
@@ -245,13 +245,15 @@ The completed-meet fixture confirms these field names and relationships in store
 
 The details response includes service-calculated best successful squat, bench, and deadlift values; partial confirmed lift sums; complete three-lift totals only when all three verified `good` lifts exist; and baseline projections. Only positive finite weights are considered. Failed `bad` attempts never contribute. Unresolved selected attempt weights are treated as hypothetical successes only in the projection, while missing weights are not invented. `KG` and pound units are normalized to kilograms for these calculations; unknown units produce unavailable normalized values.
 
-In **Attempt Strategy**, choose a followed athlete, one of their configured divisions/weight classes, and one or more opponents. Opponent eligibility uses the same division document ID, weight-class ID, gender, equipment category, and lift configuration; matching numerical weight limits alone is not sufficient. The backend reads stored PostgreSQL details and returns provisional projected category totals and ranks. It does not persist scenario values or edit source data.
+The points selector defaults to IPF GL and persists its selection in browser local storage. Competition details and **My Lifters** show confirmed and projected scores for each division membership using the selected system. Confirmed scores require a complete successful performance, positive bodyweight, and known gender, equipment, and event category. Projected scores are available only when a selected unresolved weight can complete the configured event; unresolved selected weights are assumed successful in the baseline. A partial three-lift total is never scored.
 
-Only existing unresolved attempts with a selected positive weight can be simulated. A scenario may change that selected weight and assume `good` or `bad`; confirmed successful attempts remain fixed, and the service counts only the best eligible attempt per lift. **Reset scenario** clears these browser-memory-only changes. Baseline projections and simulated results are hypothetical, and projected rankings are unofficial; federation eligibility and tie-break rules have not been verified.
+Scoring formulas use the coefficients and equations in the user-supplied [`docs/scoring-formulas-reference.js`](docs/scoring-formulas-reference.js): IPF GL, DOTS, Wilks 1 (labelled original), Wilks 2 (labelled 2020 rework), and Legacy IPF Points. This user-provided file is the project's scoring specification; it does not provide a publication/version date for every coefficient table and is not a representation of current official federation rules. IPF GL and Legacy IPF support the reference's classic/raw and equipped full-power and bench-only coefficients. DOTS and both Wilks formulas are unavailable for bench-only; other event combinations without a supplied formula are also unavailable.
 
-The original scoring JavaScript reference and its coefficient tables are not present in this repository. The points-system selector defaults to IPF GL and saves the selection in browser local storage, but current/projected scores and Best Overall rankings are unavailable until that source is supplied. No coefficients are guessed. Bench-only and other configured lift categories are identified from the stored division configuration; the API exposes eligible category totals without calling a two-lift result a three-lift total.
+In **Attempt Strategy**, choose a followed athlete, a division/weight class, and opponents. **Weight Class** preserves exact division and weight-class matching. **Best Overall** compares across weight classes while requiring matching gender, equipment, and event category; a lifter with multiple memberships is included once using a compatible membership. Both modes use the selected points system and allow hypothetical changes for the followed athlete and selected opponents. Confirmed points remain separate from scenario-projected points. Rankings are provisional comparisons within the selected scope, not official award placings.
 
-The current CouchDB fixture does not establish upcoming-attempt order. The UI therefore reports **Order unavailable** and shows no attempts-ahead or wait-time estimate. A live queue must be verified before introducing those estimates.
+Only existing unresolved attempts with a selected positive weight can be simulated. A scenario may change that selected weight and assume `good` or `bad`; confirmed successful attempts remain fixed, and the service counts only the best eligible attempt per lift. **Reset scenario** clears these browser-memory-only changes. Projected scores and rankings are hypothetical; official eligibility, tie-break rules, and award placings have not been verified.
+
+The current CouchDB fixture does not establish upcoming-attempt order. The UI therefore reports **Order unavailable** and shows no attempts-ahead or wait-time estimate. Before implementing a queue, observe an active platform's `currentAttemptId` over successive attempts and verify the actual upcoming attempt IDs/order against the available lifter, platform, flight/session/lot, lift, and attempt-number fields. Only after that validation, the intended estimate is the simple approximation `estimatedMinutes = attemptsAhead`, labelled “approximately.” Do not show it before queue ordering is verified.
 
 Strategy calculations use a stateless API request and do not contact LiftingCast:
 
@@ -259,11 +261,15 @@ Strategy calculations use a stateless API request and do not contact LiftingCast
 curl -k -X POST https://localhost:7251/api/competitions/COMPETITION_ID/strategy \
   -H 'Content-Type: application/json' \
   -d '{
-    "divisionId": "DIVISION_DOCUMENT_ID",
-    "weightClassId": "WEIGHT_CLASS_ID",
+    "mode": "best-overall",
+    "pointsSystem": "ipf-gl",
+    "divisionId": "PRIMARY_DIVISION_DOCUMENT_ID",
+    "weightClassId": "PRIMARY_WEIGHT_CLASS_ID",
     "lifters": [
       {
         "lifterId": "LIFTER_DOCUMENT_ID",
+        "divisionId": "LIFTER_DIVISION_DOCUMENT_ID",
+        "weightClassId": "LIFTER_WEIGHT_CLASS_ID",
         "attempts": [
           { "attemptId": "ATTEMPT_DOCUMENT_ID", "weight": 180, "result": "good" }
         ]
@@ -272,7 +278,7 @@ curl -k -X POST https://localhost:7251/api/competitions/COMPETITION_ID/strategy 
   }'
 ```
 
-The request only accepts existing unresolved attempts with a selected weight; scenario outcomes must be `good` or `bad`. Invalid, resolved, duplicate, or out-of-division inputs are rejected.
+For `weight-class`, each selected lifter must use the exact requested division and weight-class IDs. For `best-overall`, each participant supplies one compatible division membership; the weight class may differ. The request only accepts existing unresolved attempts with a selected weight; scenario outcomes must be `good` or `bad`. Invalid points systems, resolved/duplicate attempts, incompatible categories, and out-of-competition IDs are rejected.
 
 ## Refreshing Competition Data
 

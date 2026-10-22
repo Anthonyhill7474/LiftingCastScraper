@@ -770,6 +770,36 @@ body {
   padding: 0.7rem;
 }
 
+.division-points-list {
+  background: #f8f8fb;
+  border-radius: 6px;
+  display: grid;
+  gap: 0.35rem;
+  margin: 0 0 0.85rem;
+  padding: 0.7rem;
+}
+
+.division-points-row {
+  align-items: baseline;
+  border-top: 1px solid #e6e7ef;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  padding-top: 0.4rem;
+}
+
+.division-points-list > strong,
+.division-points-row > strong {
+  color: #4d5db3;
+  font-size: 0.9rem;
+}
+
+.division-points-list > span,
+.division-points-row > span {
+  color: #555;
+  font-size: 0.85rem;
+}
+
 .performance-summary strong {
   color: #4d5db3;
   font-size: 0.9rem;

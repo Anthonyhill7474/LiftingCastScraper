@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  getCompatibleBestOverallDivision,
+  getEligibleBestOverallOpponents,
   getEligibleStrategyOpponents,
   resetScenarios,
   updateScenario,
@@ -44,6 +46,54 @@ test('opponent selection requires the exact division and weight-class IDs', () =
     getEligibleStrategyOpponents(lifters, 'primary', rawDivision, ['same-division'])
       .map((lifter) => lifter.documentId),
     ['multiple-divisions'],
+  )
+})
+
+test('Best Overall filters by gender, equipment, and event but includes other weight classes once', () => {
+  const lifters = [
+    { documentId: 'primary', divisions: [rawDivision] },
+    {
+      documentId: 'other-weight',
+      divisions: [{ ...rawDivision, weightClassId: 'weight-93', gender: 'male', rawOrEquipped: 'classic' }],
+    },
+    {
+      documentId: 'multiple-memberships',
+      divisions: [
+        { ...rawDivision, divisionId: 'other-open', weightClassId: 'weight-105' },
+        { ...rawDivision, weightClassId: 'weight-120' },
+      ],
+    },
+    {
+      documentId: 'female',
+      divisions: [{ ...rawDivision, weightClassId: 'female-83', gender: 'FEMALE' }],
+    },
+    {
+      documentId: 'equipped',
+      divisions: [{ ...rawDivision, weightClassId: 'equipped-83', rawOrEquipped: 'EQUIPPED' }],
+    },
+    {
+      documentId: 'bench-only',
+      divisions: [{
+        ...rawDivision,
+        weightClassId: 'bench-83',
+        lifts: { squat: false, bench: true, dead: false },
+      }],
+    },
+  ]
+
+  assert.deepEqual(
+    getEligibleBestOverallOpponents(lifters, 'primary', rawDivision)
+      .map((lifter) => lifter.documentId),
+    ['other-weight', 'multiple-memberships'],
+  )
+  assert.equal(
+    getCompatibleBestOverallDivision(lifters[2], rawDivision).weightClassId,
+    'weight-120',
+  )
+  assert.deepEqual(
+    getEligibleBestOverallOpponents(lifters, 'primary', rawDivision, ['other-weight'])
+      .map((lifter) => lifter.documentId),
+    ['multiple-memberships'],
   )
 })
 

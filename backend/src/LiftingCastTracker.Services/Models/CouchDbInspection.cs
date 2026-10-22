@@ -193,12 +193,17 @@ public sealed record CompetitionDivisionDto(
     string? Gender,
     string? RawOrEquipped,
     string? ScoreBy,
-    CompetitionLiftConfigurationDto Lifts);
+    CompetitionLiftConfigurationDto Lifts,
+    IReadOnlyDictionary<string, CompetitionPointsScoreDto>? PointsScores = null);
 
 public sealed record CompetitionLiftConfigurationDto(
     bool? Squat,
     bool? Bench,
     bool? Dead);
+
+public sealed record CompetitionPointsScoreDto(
+    double? ConfirmedScore,
+    double? ProjectedScore);
 
 public sealed record CompetitionLifterPerformanceDto(
     double? BestSquatKg,
@@ -221,12 +226,16 @@ public sealed record CompetitionAttemptDto(
 
 public sealed record CompetitionStrategyRequest(
     string DivisionId,
-    string WeightClassId,
-    IReadOnlyList<CompetitionStrategyLifterScenario> Lifters);
+    string? WeightClassId,
+    IReadOnlyList<CompetitionStrategyLifterScenario> Lifters,
+    string PointsSystem = "ipf-gl",
+    string Mode = "weight-class");
 
 public sealed record CompetitionStrategyLifterScenario(
     string LifterId,
-    IReadOnlyList<CompetitionAttemptScenario> Attempts);
+    IReadOnlyList<CompetitionAttemptScenario> Attempts,
+    string? DivisionId = null,
+    string? WeightClassId = null);
 
 public sealed record CompetitionAttemptScenario(
     string AttemptId,
@@ -235,7 +244,9 @@ public sealed record CompetitionAttemptScenario(
 
 public sealed record CompetitionStrategyResult(
     string DivisionId,
-    string WeightClassId,
+    string? WeightClassId,
+    string Mode,
+    string PointsSystem,
     IReadOnlyList<CompetitionStrategyStandingDto> Standings);
 
 public sealed record CompetitionStrategyStandingDto(
@@ -245,4 +256,8 @@ public sealed record CompetitionStrategyStandingDto(
     CompetitionLifterPerformanceDto CurrentPerformance,
     CompetitionLifterPerformanceDto ScenarioPerformance,
     int? ProvisionalPlace,
-    bool IsTied);
+    bool IsTied,
+    string? WeightClassId = null,
+    string? WeightClassName = null,
+    double? CurrentConfirmedPoints = null,
+    double? ProjectedPoints = null);

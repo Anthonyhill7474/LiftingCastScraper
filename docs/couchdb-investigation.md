@@ -132,7 +132,7 @@ The existing completed fixture was rechecked for calculation inputs. These obser
 
 Only exact observed `good` outcomes are treated as successful; `bad` is excluded, and unresolved attempts remain unknown. A positive selected unresolved weight can support a clearly hypothetical baseline projection; an absent weight is never filled in. Pound conversion is supported by the calculation code, but this fixture only verifies kilograms. No additional real meet was available to validate other unit/category representations.
 
-The repository does not contain the original scoring JavaScript reference or its coefficient tables. `scoreBy` identifies source configuration, not the exact formulas or coefficients for IPF GL, DOTS, Wilks, or legacy IPF. Those scores and Best Overall ranking remain unavailable until the reference is supplied; coefficients must not be inferred.
+The user supplied `docs/scoring-formulas-reference.js` as the project's scoring specification. Its labels identify Wilks 1 as original and Wilks 2 as the 2020 rework; it does not state a publication/version date for every coefficient table. `CompetitionPointsCalculator` implements its IPF GL, DOTS, Wilks 1, Wilks 2, and Legacy IPF formulas and coefficients; `scoreBy` remains source configuration metadata and is not used to infer a formula. These supplied legacy formulas are not asserted to be the latest official federation rules. The reference supports IPF GL and Legacy IPF bench-only scoring; its DOTS and Wilks functions explicitly mark bench-only results invalid. Other event combinations have no supplied formula and remain unavailable.
 
 The completed snapshot also cannot establish live lifting order. Attempt documents expose lift, round, selected weight, and lifter ID; profiles expose platform, flight, session, and lot; the runtime document exposes current state but no verified upcoming queue. These fields do not prove a live sort order, and this completed meet has no current attempt. The interface therefore reports order unavailable and does not estimate attempts ahead or wait time. Verify ordering against an actively running meet before implementing such estimates.
 
@@ -143,5 +143,5 @@ The completed snapshot also cannot establish live lifting order. Attempt documen
 3. What do `result`, `decision`, and `cards` values mean, and what rule determines a successful attempt?
 4. Are the 12 incomplete attempt records placeholders, withdrawn attempts, or another state?
 5. Does `currentAttemptId` point to an attempt document during a live meet, and what are the units/transitions for `clockTimerLength` and `clockState`?
-6. How are flight/session order, weight-class selection, totals, scoring, and placings determined, including ties and incomplete results?
+6. Are the supplied legacy formulas and category applicability still intended as the project's scoring specification, and what official award/placing rules apply to ties and incomplete results?
 7. Why does this fixture contain 402 rows while the earlier observation reported 327, and are deleted documents or unresolved conflicts visible through the read-only endpoints?

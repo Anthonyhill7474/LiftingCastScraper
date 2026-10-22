@@ -24,6 +24,18 @@ export const getEligibleStrategyOpponents: <T extends StrategyLifter>(
   alreadySelectedIds?: readonly string[],
 ) => T[]
 
+export const getCompatibleBestOverallDivision: <T extends StrategyLifter>(
+  lifter: T,
+  selectedDivision: StrategyDivision | undefined,
+) => T['divisions'][number] | null
+
+export const getEligibleBestOverallOpponents: <T extends StrategyLifter>(
+  lifters: readonly T[],
+  primaryLifterId: string,
+  selectedDivision: StrategyDivision | undefined,
+  alreadySelectedIds?: readonly string[],
+) => T[]
+
 export const updateScenario: <T>(
   scenarios: Record<string, T>,
   key: string,
