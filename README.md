@@ -280,6 +280,22 @@ curl -k -X POST https://localhost:7251/api/competitions/COMPETITION_ID/strategy 
 
 For `weight-class`, each selected lifter must use the exact requested division and weight-class IDs. For `best-overall`, each participant supplies one compatible division membership; the weight class may differ. The request only accepts existing unresolved attempts with a selected weight; scenario outcomes must be `good` or `bad`. Invalid points systems, resolved/duplicate attempts, incompatible categories, and out-of-competition IDs are rejected.
 
+### Competition Standings
+
+The competition page's **Standings** section reads only synchronized PostgreSQL data:
+
+```bash
+curl -k https://localhost:7251/api/competitions/COMPETITION_ID/standings
+```
+
+The response contains `weightClasses` grouped by the exact division ID and declared weight-class ID, plus gender, equipment, event type, and configured `scoreBy`. It includes athlete IDs/names, bodyweight and best lifts in kilograms, successful-lift sums, complete totals, confirmed/projected values and ranks, and the last synchronization timestamp. A missing weight-class configuration name is shown using its ID; memberships without usable division or weight-class IDs are counted as unresolved instead of being assigned to a guessed category.
+
+**My Classes** filters to categories containing followed lifter IDs. **All Classes** provides gender, division, and weight-class filters and displays one selected category at a time. **Overall** separates male/female and filters classic/raw versus equipped and full-power versus bench-only categories. Every athlete appears once per compatible overall category even when they have multiple division memberships. The selected points system is shared with Strategy and changes the displayed overall ranks using scores computed by the existing C# scoring engine.
+
+Confirmed full-power ranks require a complete successful squat/bench/deadlift total; confirmed bench-only ranks use the best successful bench. Failed attempts are never counted. The successful-lift sum remains visible for incomplete results but does not rank as a full-power total. Projected ranks require a recorded pending attempt and are explicitly hypothetical; overall projected mode does not substitute confirmed scores for missing projections. Equal values are marked tied with no rank because tie-break rules have not been verified.
+
+Weight-class ranks are calculated only for resolved categories configured with `scoreBy: TOTAL` and a supported full-power or bench-only event. Other categories still show available results but remain unranked: the meaning of `scoreBy: IPF_POINTS` and its award formula have not been verified, and no user-selected points system is assumed to override meet award rules. Overall points are coaching comparisons, not official placings. No database migration is required.
+
 ## Refreshing Competition Data
 
 On a Development backend, the competition-details page shows **Refresh changes** and **Full refresh** controls only after `GET /api/development/status` explicitly reports Development mode. The synchronization endpoint remains Development-only regardless of frontend visibility.

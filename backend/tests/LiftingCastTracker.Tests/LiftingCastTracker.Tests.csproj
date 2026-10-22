@@ -24,4 +24,10 @@
     <ProjectReference Include="..\..\src\LiftingCastTracker.Controllers\LiftingCastTracker.Controllers.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\..\local-data\completed-meet.json"
+          Link="Fixtures\completed-meet.json"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   filterFollowedLifters,
   getMissingFollowedLifterIds,
@@ -25,6 +25,14 @@ import {
   resetScenarios,
   updateScenario,
 } from './strategyUi.js'
+import {
+  filterOverallCategories,
+  getOverallResult,
+  getVisibleStandingsCategories,
+  getWeightClassResult,
+  sortOverallStandings,
+  sortWeightClassStandings,
+} from './standingsUi.js'
 
 interface Competition {
   id: string
@@ -47,6 +55,76 @@ interface CompetitionDetails {
   lastSyncedAtUtc?: string | null
   platforms: Platform[]
   lifters: Lifter[]
+}
+
+interface WeightClassStanding {
+  athleteId: string
+  athleteName?: string | null
+  bodyWeightKg?: number | null
+  bestSquatKg?: number | null
+  bestBenchKg?: number | null
+  bestDeadliftKg?: number | null
+  successfulLiftSumKg?: number | null
+  completeThreeLiftTotalKg?: number | null
+  confirmedResultKg?: number | null
+  projectedResultKg?: number | null
+  hasPendingAttempts: boolean
+  confirmedRank?: number | null
+  confirmedStatus: string
+  projectedRank?: number | null
+  projectedStatus: string
+}
+
+interface WeightClassLeaderboard {
+  divisionId: string
+  divisionName?: string | null
+  weightClassId: string
+  weightClassName?: string | null
+  gender: string
+  equipmentCategory: string
+  eventType: string
+  scoreBy?: string | null
+  rankingBasis: string
+  rankingLimitation?: string | null
+  standings: WeightClassStanding[]
+}
+
+interface OverallStanding {
+  athleteId: string
+  athleteName?: string | null
+  bodyWeightKg?: number | null
+  divisionId: string
+  divisionName?: string | null
+  weightClassId: string
+  weightClassName?: string | null
+  scoreBy?: string | null
+  hasPendingAttempts: boolean
+  pointsScores: Record<string, DivisionPointsScore>
+  rankings: Record<string, {
+    confirmedRank: number | null
+    confirmedStatus: string
+    projectedRank: number | null
+    projectedStatus: string
+  }>
+}
+
+interface OverallLeaderboard {
+  gender: string
+  equipmentCategory: string
+  eventType: string
+  standings: OverallStanding[]
+}
+
+interface CompetitionStandings {
+  competitionId: string
+  name: string
+  date?: string | null
+  dateFormat?: string | null
+  lastSyncedAtUtc?: string | null
+  unresolvedMembershipCount: number
+  unsupportedOverallMembershipCount: number
+  weightClasses: WeightClassLeaderboard[]
+  overallCategories: OverallLeaderboard[]
 }
 
 interface LifterPerformance {
@@ -153,6 +231,7 @@ interface Division {
   rawOrEquipped?: string | null
   scoreBy?: string | null
   pointsScores?: Record<string, DivisionPointsScore> | null
+  weightClassResolved?: boolean
   lifts: {
     squat?: boolean | null
     bench?: boolean | null
@@ -241,6 +320,49 @@ function formatPoints(value?: number | null): string {
     : value.toFixed(2)
 }
 
+function getWeightClassCategoryKey(category: WeightClassLeaderboard): string {
+  return [
+    category.divisionId,
+    category.weightClassId,
+    category.gender,
+    category.equipmentCategory,
+    category.eventType,
+    category.scoreBy ?? '',
+  ].join('|')
+}
+
+function getOverallCategoryKey(category: OverallLeaderboard): string {
+  return [category.gender, category.equipmentCategory, category.eventType].join('|')
+}
+
+function formatEventType(eventType: string): string {
+  switch (eventType) {
+    case 'full-power':
+      return 'Full power'
+    case 'bench-only':
+      return 'Bench only'
+    default:
+      return eventType.split('-').map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' + ')
+  }
+}
+
+function formatStandingStatus(status: string): string {
+  switch (status) {
+    case 'tied':
+      return 'Tied · tie-break unresolved'
+    case 'incomplete':
+      return 'Incomplete result'
+    case 'unrankable':
+      return 'Ranking unavailable'
+    case 'no-projection':
+      return 'No pending-attempt projection'
+    case 'projection-incomplete':
+      return 'Projection incomplete'
+    default:
+      return 'Unavailable'
+  }
+}
+
 function canEditScenarioAttempt(attempt: Attempt, units?: string | null): boolean {
   const result = typeof attempt.result === 'string' ? attempt.result.trim().toLowerCase() : ''
   const weight = typeof attempt.weight === 'string' || typeof attempt.weight === 'number'
@@ -280,6 +402,20 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [selectedCompetition, setSelectedCompetition] = useState<Competition | null>(null)
   const [details, setDetails] = useState<CompetitionDetails | null>(null)
+  const [standings, setStandings] = useState<CompetitionStandings | null>(null)
+  const [standingsLoading, setStandingsLoading] = useState(false)
+  const [standingsError, setStandingsError] = useState<string | null>(null)
+  const [standingsView, setStandingsView] = useState<'my-classes' | 'all-classes' | 'overall'>('my-classes')
+  const [standingsResultMode, setStandingsResultMode] = useState<'confirmed' | 'projected'>('confirmed')
+  const [standingsCategoryKey, setStandingsCategoryKey] = useState('')
+  const [standingsGenderFilter, setStandingsGenderFilter] = useState('all')
+  const [standingsDivisionFilter, setStandingsDivisionFilter] = useState('all')
+  const [standingsWeightClassFilter, setStandingsWeightClassFilter] = useState('all')
+  const [overallGender, setOverallGender] = useState<'male' | 'female'>('male')
+  const [overallEquipmentFilter, setOverallEquipmentFilter] = useState('all')
+  const [overallEventFilter, setOverallEventFilter] = useState('all')
+  const [overallCategoryKey, setOverallCategoryKey] = useState('')
+  const focusLifterId = useRef('')
   const [platformDashboard, setPlatformDashboard] = useState<PlatformDashboard | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
   const [platformDashboardLoading, setPlatformDashboardLoading] = useState(false)
@@ -452,6 +588,32 @@ export default function App() {
     if (leftIsUpcoming !== rightIsUpcoming) return leftIsUpcoming ? -1 : 1
     return leftIsUpcoming ? leftDate - rightDate : rightDate - leftDate
   })
+  const visibleWeightClasses = standings
+    ? getVisibleStandingsCategories(
+        standings,
+        standingsView === 'my-classes' ? 'my-classes' : 'all-classes',
+        followedLifterIds,
+      ) as WeightClassLeaderboard[]
+    : []
+  const filteredWeightClasses = visibleWeightClasses.filter((category) =>
+    (standingsGenderFilter === 'all' || category.gender === standingsGenderFilter)
+      && (standingsDivisionFilter === 'all' || category.divisionId === standingsDivisionFilter)
+      && (standingsWeightClassFilter === 'all' || category.weightClassId === standingsWeightClassFilter),
+  )
+  const activeWeightClass = filteredWeightClasses.find(
+    (category) => getWeightClassCategoryKey(category) === standingsCategoryKey,
+  ) ?? filteredWeightClasses[0]
+  const visibleOverallCategories = standings
+    ? filterOverallCategories(
+        standings.overallCategories,
+        overallGender,
+        overallEquipmentFilter === 'all' ? '' : overallEquipmentFilter,
+        overallEventFilter === 'all' ? '' : overallEventFilter,
+      )
+    : []
+  const activeOverallCategory = visibleOverallCategories.find(
+    (category) => getOverallCategoryKey(category) === overallCategoryKey,
+  ) ?? visibleOverallCategories[0]
 
   const persistFollowedLifterIds = (lifterIds: string[]) => {
     if (!selectedCompetition) return
@@ -585,6 +747,35 @@ export default function App() {
   }, [selectedCompetition, detailsReloadKey])
 
   useEffect(() => {
+    if (!selectedCompetition) return
+
+    const controller = new AbortController()
+    const fetchStandings = async () => {
+      setStandings(null)
+      setStandingsError(null)
+      setStandingsLoading(true)
+      try {
+        const apiBase = import.meta.env.VITE_API_BASE_URL || 'https://localhost:7251'
+        const response = await fetch(
+          `${apiBase}/api/competitions/${encodeURIComponent(selectedCompetition.id)}/standings`,
+          { signal: controller.signal },
+        )
+        if (response.status === 409) return
+        if (!response.ok) throw new Error(`API error: ${response.status}`)
+        setStandings(await response.json())
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return
+        setStandingsError(err instanceof Error ? err.message : 'Failed to fetch competition standings')
+      } finally {
+        if (!controller.signal.aborted) setStandingsLoading(false)
+      }
+    }
+
+    fetchStandings()
+    return () => controller.abort()
+  }, [selectedCompetition, detailsReloadKey])
+
+  useEffect(() => {
     if (!selectedCompetition || !strategyRequestKey || !strategyRequestBody) return
 
     const controller = new AbortController()
@@ -622,6 +813,15 @@ export default function App() {
     strategyRequestKey,
     strategyRequestBody,
   ])
+
+  useEffect(() => {
+    const athleteId = focusLifterId.current
+    if (!athleteId || lifterView !== 'all') return
+    const target = document.getElementById(`lifter-${encodeURIComponent(athleteId)}`)
+    if (!target) return
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    focusLifterId.current = ''
+  }, [lifterView, details])
 
   const changePointsSystem = (nextSystem: string) => {
     try {
@@ -678,6 +878,80 @@ export default function App() {
     } finally {
       setRefreshing(null)
     }
+  }
+
+  const getStrategyPreset = (
+    athleteId: string,
+    divisionId: string,
+    weightClassId: string,
+  ) => {
+    if (!details) return null
+    const targetLifter = details.lifters.find((lifter) => lifter.documentId === athleteId)
+    const targetDivision = targetLifter?.divisions.find((division) =>
+      division.divisionId === divisionId && division.weightClassId === weightClassId,
+    )
+    if (!targetLifter || !targetDivision) return null
+
+    if (followedLifterIdSet.has(targetLifter.documentId)) {
+      const opponent = getEligibleBestOverallOpponents(
+        details.lifters,
+        targetLifter.documentId,
+        targetDivision,
+      )[0]
+      return opponent
+        ? { strategist: targetLifter, division: targetDivision, opponentId: opponent.documentId }
+        : null
+    }
+
+    for (const strategist of followedInCompetition) {
+      const compatibleDivision = getCompatibleBestOverallDivision(strategist, targetDivision)
+      if (compatibleDivision) {
+        return {
+          strategist,
+          division: compatibleDivision,
+          opponentId: targetLifter.documentId,
+        }
+      }
+    }
+
+    return null
+  }
+
+  const compareInStrategy = (
+    athleteId: string,
+    divisionId: string,
+    weightClassId: string,
+  ) => {
+    const preset = getStrategyPreset(athleteId, divisionId, weightClassId)
+    if (!preset) return
+    setSelectedStrategistId(preset.strategist.documentId)
+    setSelectedStrategyDivisionKey(
+      `${preset.division.divisionId}|${preset.division.weightClassId}`,
+    )
+    setStrategyMode('best-overall')
+    setSelectedOpponentId('')
+    setStrategyOpponentIds([preset.opponentId])
+    setStrategyScenarios(resetScenarios())
+    document.getElementById('competition-strategy')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }
+
+  const showLifterDetails = (athleteId: string) => {
+    focusLifterId.current = athleteId
+    setLifterView('all')
+    if (lifterView === 'all' && athleteId) {
+      document.getElementById(`lifter-${encodeURIComponent(athleteId)}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+      focusLifterId.current = ''
+    }
+    document.getElementById('competition-lifters')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
   }
 
   return (
@@ -765,6 +1039,15 @@ export default function App() {
               </div>
             )}
 
+            {details && (
+              <nav className="competition-view-nav" aria-label="Competition views">
+                <a href="#platform-dashboard">Platforms</a>
+                <a href="#competition-standings">Standings</a>
+                <a href="#competition-strategy">Strategy</a>
+                <a href="#competition-lifters">Lifters</a>
+              </nav>
+            )}
+
             {detailsLoading && <div className="state">Loading competition details...</div>}
             {detailsError && <div className="state error">Error: {detailsError}</div>}
             {notSynchronized && (
@@ -773,7 +1056,11 @@ export default function App() {
                 <span>Run a manual Development synchronization for this competition, then reload this page.</span>
               </div>
             )}
-            <section className="platform-dashboard" aria-labelledby="platform-dashboard-heading">
+            <section
+              className="platform-dashboard"
+              id="platform-dashboard"
+              aria-labelledby="platform-dashboard-heading"
+            >
               <div className="platform-dashboard-heading">
                 <div>
                   <h3 id="platform-dashboard-heading">Platform dashboard</h3>
@@ -847,7 +1134,523 @@ export default function App() {
               )}
             </section>
             {details && (
-              <section className="strategy-dashboard" aria-labelledby="strategy-heading">
+              <section
+                className="standings-dashboard"
+                id="competition-standings"
+                aria-labelledby="competition-standings-heading"
+              >
+                <div className="standings-heading">
+                  <div>
+                    <h3 id="competition-standings-heading">Competition standings</h3>
+                    <p>
+                      Calculated coaching comparisons, not federation-certified placings.
+                      Unverified tie-break rules remain unresolved.
+                    </p>
+                  </div>
+                  <p className="sync-time">
+                    Last synchronized: {formatSyncedAt(standings?.lastSyncedAtUtc)}
+                  </p>
+                </div>
+
+                <div className="standings-view-switch" role="group" aria-label="Standings view">
+                  <button
+                    type="button"
+                    aria-pressed={standingsView === 'my-classes'}
+                    onClick={() => {
+                      setStandingsView('my-classes')
+                      setStandingsGenderFilter('all')
+                      setStandingsDivisionFilter('all')
+                      setStandingsWeightClassFilter('all')
+                    }}
+                  >
+                    My Classes
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={standingsView === 'all-classes'}
+                    onClick={() => {
+                      setStandingsView('all-classes')
+                      setStandingsGenderFilter('all')
+                      setStandingsDivisionFilter('all')
+                      setStandingsWeightClassFilter('all')
+                    }}
+                  >
+                    All Classes
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={standingsView === 'overall'}
+                    onClick={() => setStandingsView('overall')}
+                  >
+                    Overall
+                  </button>
+                </div>
+
+                <div className="standings-result-switch" role="group" aria-label="Standings result type">
+                  <button
+                    type="button"
+                    aria-pressed={standingsResultMode === 'confirmed'}
+                    onClick={() => setStandingsResultMode('confirmed')}
+                  >
+                    Confirmed
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={standingsResultMode === 'projected'}
+                    onClick={() => setStandingsResultMode('projected')}
+                  >
+                    Projected
+                  </button>
+                </div>
+
+                {standingsLoading && <div className="state">Loading standings...</div>}
+                {standingsError && (
+                  <div className="state error">Standings error: {standingsError}</div>
+                )}
+                {notSynchronized && (
+                  <div className="state empty">Synchronize this competition to calculate standings.</div>
+                )}
+                {standings && (
+                  <>
+                    {standings.unresolvedMembershipCount > 0 && (
+                      <p className="standings-note" role="status">
+                        {standings.unresolvedMembershipCount} division membership
+                        {standings.unresolvedMembershipCount === 1 ? '' : 's'} lack a usable division
+                        or declared weight-class ID and are omitted from class groups.
+                      </p>
+                    )}
+                    {standings.unsupportedOverallMembershipCount > 0 && (
+                      <p className="standings-note" role="status">
+                        {standings.unsupportedOverallMembershipCount} membership
+                        {standings.unsupportedOverallMembershipCount === 1 ? '' : 's'} cannot be placed in
+                        an overall category because gender, equipment, or event type is unresolved or unsupported.
+                      </p>
+                    )}
+
+                    {standingsView !== 'overall' ? (
+                      <>
+                        {standingsView === 'all-classes' && (
+                          <div className="standings-filters">
+                            <label>
+                              <span>Gender</span>
+                              <select
+                                value={standingsGenderFilter}
+                                onChange={(event) => setStandingsGenderFilter(event.target.value)}
+                              >
+                                <option value="all">All genders</option>
+                                {[...new Set(visibleWeightClasses.map((category) => category.gender))]
+                                  .sort()
+                                  .map((gender) => (
+                                    <option key={gender} value={gender}>
+                                      {gender.charAt(0).toUpperCase() + gender.slice(1)}
+                                    </option>
+                                  ))}
+                              </select>
+                            </label>
+                            <label>
+                              <span>Division</span>
+                              <select
+                                value={standingsDivisionFilter}
+                                onChange={(event) => setStandingsDivisionFilter(event.target.value)}
+                              >
+                                <option value="all">All divisions</option>
+                                {[...new Map(visibleWeightClasses.map((category) => [
+                                  category.divisionId,
+                                  category.divisionName || category.divisionId,
+                                ])).entries()]
+                                  .sort((left, right) => String(left[1]).localeCompare(String(right[1])))
+                                  .map(([divisionId, label]) => (
+                                    <option key={divisionId} value={divisionId}>{label}</option>
+                                  ))}
+                              </select>
+                            </label>
+                            <label>
+                              <span>Weight class</span>
+                              <select
+                                value={standingsWeightClassFilter}
+                                onChange={(event) => setStandingsWeightClassFilter(event.target.value)}
+                              >
+                                <option value="all">All weight classes</option>
+                                {[...new Map(visibleWeightClasses
+                                  .filter((category) => standingsDivisionFilter === 'all'
+                                    || category.divisionId === standingsDivisionFilter)
+                                  .map((category) => [
+                                    category.weightClassId,
+                                    category.weightClassName || category.weightClassId,
+                                  ])).entries()]
+                                  .sort((left, right) => String(left[1]).localeCompare(String(right[1])))
+                                  .map(([weightClassId, label]) => (
+                                    <option key={weightClassId} value={weightClassId}>{label}</option>
+                                  ))}
+                              </select>
+                            </label>
+                          </div>
+                        )}
+                        {standingsView === 'my-classes' && followedLifterIds.length === 0 ? (
+                          <div className="state empty">
+                            <strong>Follow lifters to see My Classes.</strong>
+                            <button
+                              type="button"
+                              className="lifter-view-button"
+                              onClick={() => showLifterDetails('')}
+                            >
+                              Browse lifters
+                            </button>
+                          </div>
+                        ) : filteredWeightClasses.length === 0 ? (
+                          <div className="state empty">
+                            {standingsView === 'my-classes'
+                              ? 'No followed lifters have a resolved division and weight-class membership.'
+                              : 'No weight classes match these filters.'}
+                          </div>
+                        ) : (
+                          <>
+                            <label className="standings-category-select">
+                              <span>{standingsView === 'my-classes' ? 'My weight classes' : 'Leaderboard'}</span>
+                              <select
+                                value={activeWeightClass
+                                  ? getWeightClassCategoryKey(activeWeightClass)
+                                  : ''}
+                                onChange={(event) => setStandingsCategoryKey(event.target.value)}
+                              >
+                                {filteredWeightClasses.map((category) => (
+                                  <option
+                                    key={getWeightClassCategoryKey(category)}
+                                    value={getWeightClassCategoryKey(category)}
+                                  >
+                                    {[
+                                      category.divisionName || category.divisionId,
+                                      category.weightClassName || category.weightClassId,
+                                      category.gender,
+                                      category.equipmentCategory,
+                                      formatEventType(category.eventType),
+                                    ].join(' · ')}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            {activeWeightClass && (
+                              <>
+                                <div className="standings-category-heading">
+                                  <div>
+                                    <h4>
+                                      {activeWeightClass.divisionName || activeWeightClass.divisionId}
+                                      {' · '}
+                                      {activeWeightClass.weightClassName || activeWeightClass.weightClassId}
+                                    </h4>
+                                    <p>
+                                      {activeWeightClass.gender} · {activeWeightClass.equipmentCategory}
+                                      {' · '}{formatEventType(activeWeightClass.eventType)}
+                                      {activeWeightClass.scoreBy ? ` · configured scoreBy ${activeWeightClass.scoreBy}` : ''}
+                                    </p>
+                                  </div>
+                                  {standingsResultMode === 'projected' && (
+                                    <span className="standings-hypothetical-label">
+                                      Hypothetical baseline · selected unresolved weights assume success
+                                    </span>
+                                  )}
+                                </div>
+                                {activeWeightClass.rankingLimitation && (
+                                  <p className="standings-note" role="status">
+                                    {activeWeightClass.rankingLimitation} Results are shown without a rank.
+                                  </p>
+                                )}
+                                {activeWeightClass.standings.length === 0 ? (
+                                  <div className="state empty">No athletes are entered in this category.</div>
+                                ) : (
+                                  <div className="standings-table-wrap">
+                                    <table className="standings-table">
+                                      <thead>
+                                        <tr>
+                                          <th scope="col">Rank</th>
+                                          <th scope="col">Athlete</th>
+                                          <th scope="col">Bodyweight</th>
+                                          <th scope="col">Squat</th>
+                                          <th scope="col">Bench</th>
+                                          <th scope="col">Deadlift</th>
+                                          <th scope="col">Successful-lift sum</th>
+                                          <th scope="col">Complete 3-lift total</th>
+                                          <th scope="col">
+                                            {activeWeightClass.eventType === 'bench-only'
+                                              ? 'Bench result'
+                                              : standingsResultMode === 'projected'
+                                                ? 'Projected result'
+                                                : 'Confirmed result'}
+                                          </th>
+                                          <th scope="col">Actions</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {sortWeightClassStandings(
+                                          activeWeightClass.standings,
+                                          standingsResultMode,
+                                        ).map((standing) => {
+                                          const result = getWeightClassResult(standing, standingsResultMode)
+                                          const isFollowed = followedLifterIdSet.has(standing.athleteId)
+                                          const strategyPreset = getStrategyPreset(
+                                            standing.athleteId,
+                                            activeWeightClass.divisionId,
+                                            activeWeightClass.weightClassId,
+                                          )
+                                          return (
+                                            <tr
+                                              className={isFollowed ? 'is-followed' : ''}
+                                              key={standing.athleteId}
+                                            >
+                                              <td>
+                                                {result.rank ? `#${result.rank}` : formatStandingStatus(result.status)}
+                                              </td>
+                                              <th scope="row">
+                                                {standing.athleteName || standing.athleteId}
+                                                {isFollowed && <span className="followed-marker">Followed</span>}
+                                              </th>
+                                              <td>{formatKg(standing.bodyWeightKg)}</td>
+                                              <td>{formatKg(standing.bestSquatKg)}</td>
+                                              <td>{formatKg(standing.bestBenchKg)}</td>
+                                              <td>{formatKg(standing.bestDeadliftKg)}</td>
+                                              <td>{formatKg(standing.successfulLiftSumKg)}</td>
+                                              <td>{formatKg(standing.completeThreeLiftTotalKg)}</td>
+                                              <td>
+                                                <strong>{formatKg(result.value)}</strong>
+                                                {standingsResultMode === 'projected' && result.value !== null && (
+                                                  <span className="standings-value-source">Hypothetical</span>
+                                                )}
+                                              </td>
+                                              <td>
+                                                <div className="standings-row-actions">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => showLifterDetails(standing.athleteId)}
+                                                  >
+                                                    View details
+                                                  </button>
+                                                  {strategyPreset && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => compareInStrategy(
+                                                        standing.athleteId,
+                                                        activeWeightClass.divisionId,
+                                                        activeWeightClass.weightClassId,
+                                                      )}
+                                                    >
+                                                      Compare in Strategy
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          )
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="standings-filters overall-filters">
+                          <div className="overall-gender-switch" role="group" aria-label="Overall gender">
+                            <button
+                              type="button"
+                              aria-pressed={overallGender === 'male'}
+                              onClick={() => setOverallGender('male')}
+                            >
+                              Male
+                            </button>
+                            <button
+                              type="button"
+                              aria-pressed={overallGender === 'female'}
+                              onClick={() => setOverallGender('female')}
+                            >
+                              Female
+                            </button>
+                          </div>
+                          <label className="points-system-control">
+                            <span>Points system</span>
+                            <select
+                              value={pointsSystem}
+                              onChange={(event) => changePointsSystem(event.target.value)}
+                            >
+                              {POINTS_SYSTEMS.map((system) => (
+                                <option key={system.id} value={system.id}>{system.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>Equipment</span>
+                            <select
+                              value={overallEquipmentFilter}
+                              onChange={(event) => setOverallEquipmentFilter(event.target.value)}
+                            >
+                              <option value="all">All equipment</option>
+                              <option value="classic">Classic/raw</option>
+                              <option value="equipped">Equipped</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>Event</span>
+                            <select
+                              value={overallEventFilter}
+                              onChange={(event) => setOverallEventFilter(event.target.value)}
+                            >
+                              <option value="all">All events</option>
+                              <option value="full-power">Full power</option>
+                              <option value="bench-only">Bench only</option>
+                            </select>
+                          </label>
+                        </div>
+                        {visibleOverallCategories.length === 0 ? (
+                          <div className="state empty">
+                            No compatible {overallGender} overall scoring categories are available.
+                          </div>
+                        ) : (
+                          <>
+                            <label className="standings-category-select">
+                              <span>Overall category</span>
+                              <select
+                                value={activeOverallCategory
+                                  ? getOverallCategoryKey(activeOverallCategory)
+                                  : ''}
+                                onChange={(event) => setOverallCategoryKey(event.target.value)}
+                              >
+                                {visibleOverallCategories.map((category) => (
+                                  <option
+                                    key={getOverallCategoryKey(category)}
+                                    value={getOverallCategoryKey(category)}
+                                  >
+                                    {category.equipmentCategory} · {formatEventType(category.eventType)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            {activeOverallCategory && (
+                              <>
+                                {standingsResultMode === 'projected' && (
+                                  <p className="standings-hypothetical-label">
+                                    Projected view includes only scores based on recorded pending attempts;
+                                    confirmed scores are not substituted.
+                                  </p>
+                                )}
+                                <div className="standings-category-heading">
+                                  <h4>
+                                    {overallGender} overall · {activeOverallCategory.equipmentCategory}
+                                    {' · '}{formatEventType(activeOverallCategory.eventType)}
+                                  </h4>
+                                  <p>
+                                    Selected points are a coaching comparison and do not override competition
+                                    award rules.
+                                  </p>
+                                </div>
+                                {activeOverallCategory.standings.length === 0 ? (
+                                  <div className="state empty">No athletes are available for this category.</div>
+                                ) : (
+                                  <div className="standings-table-wrap">
+                                    <table className="standings-table">
+                                      <thead>
+                                        <tr>
+                                          <th scope="col">Rank</th>
+                                          <th scope="col">Athlete</th>
+                                          <th scope="col">Division / weight class</th>
+                                          <th scope="col">Bodyweight</th>
+                                          <th scope="col">Points</th>
+                                          <th scope="col">Source</th>
+                                          <th scope="col">Actions</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {sortOverallStandings(
+                                          activeOverallCategory.standings,
+                                          standingsResultMode,
+                                          pointsSystem,
+                                        ).map((standing) => {
+                                          const result = getOverallResult(
+                                            standing,
+                                            standingsResultMode,
+                                            pointsSystem,
+                                          )
+                                          const isFollowed = followedLifterIdSet.has(standing.athleteId)
+                                          const strategyPreset = getStrategyPreset(
+                                            standing.athleteId,
+                                            standing.divisionId,
+                                            standing.weightClassId,
+                                          )
+                                          return (
+                                            <tr
+                                              className={isFollowed ? 'is-followed' : ''}
+                                              key={standing.athleteId}
+                                            >
+                                              <td>
+                                                {result.rank ? `#${result.rank}` : formatStandingStatus(result.status)}
+                                              </td>
+                                              <th scope="row">
+                                                {standing.athleteName || standing.athleteId}
+                                                {isFollowed && <span className="followed-marker">Followed</span>}
+                                              </th>
+                                              <td>
+                                                {standing.divisionName || standing.divisionId}
+                                                {' · '}
+                                                {standing.weightClassName || standing.weightClassId}
+                                              </td>
+                                              <td>{formatKg(standing.bodyWeightKg)}</td>
+                                              <td><strong>{formatPoints(result.value)}</strong></td>
+                                              <td>
+                                                {result.source === 'hypothetical'
+                                                  ? 'Hypothetical'
+                                                  : standingsResultMode === 'projected'
+                                                    ? 'No projection'
+                                                    : formatPoints(result.value) === 'Unavailable'
+                                                      ? 'Unavailable'
+                                                      : 'Confirmed'}
+                                              </td>
+                                              <td>
+                                                <div className="standings-row-actions">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => showLifterDetails(standing.athleteId)}
+                                                  >
+                                                    View details
+                                                  </button>
+                                                  {strategyPreset && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => compareInStrategy(
+                                                        standing.athleteId,
+                                                        standing.divisionId,
+                                                        standing.weightClassId,
+                                                      )}
+                                                    >
+                                                      Compare in Strategy
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          )
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
+            {details && (
+              <section
+                className="strategy-dashboard"
+                id="competition-strategy"
+                aria-labelledby="strategy-heading"
+              >
                 <div className="strategy-header">
                   <div>
                     <h3 id="strategy-heading">Attempt Strategy</h3>
@@ -1213,7 +2016,11 @@ export default function App() {
               </section>
             )}
             {details && (
-              <section className="lifter-dashboard" aria-labelledby="lifter-dashboard-heading">
+              <section
+                className="lifter-dashboard"
+                id="competition-lifters"
+                aria-labelledby="lifter-dashboard-heading"
+              >
                 <div className="lifter-dashboard-heading">
                   <div>
                     <h3 id="lifter-dashboard-heading">
@@ -1304,6 +2111,7 @@ export default function App() {
                             return (
                               <article
                                 className={`lifter-card ${isFollowed ? 'is-followed' : ''}`}
+                                id={`lifter-${encodeURIComponent(lifter.documentId)}`}
                                 key={lifter.documentId}
                               >
                                 <div className="lifter-heading">

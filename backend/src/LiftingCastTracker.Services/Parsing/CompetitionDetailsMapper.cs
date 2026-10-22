@@ -197,7 +197,8 @@ public static class CompetitionDetailsMapper
                     new CompetitionLiftConfigurationDto(
                         GetBoolean(config, "squat", "lifts"),
                         GetBoolean(config, "bench", "lifts"),
-                        GetBoolean(config, "dead", "lifts"))));
+                        GetBoolean(config, "dead", "lifts")),
+                    WeightClassResolved: weightClass.ValueKind == JsonValueKind.Object));
             }
         }
 

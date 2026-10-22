@@ -382,6 +382,221 @@ body {
   font-size: 0.88rem;
 }
 
+.competition-view-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0;
+}
+
+.competition-view-nav a {
+  color: #4d5db3;
+  font-weight: 600;
+  padding: 0.4rem 0;
+}
+
+.competition-view-nav a:focus-visible,
+.standings-dashboard button:focus-visible,
+.standings-dashboard select:focus-visible {
+  outline: 3px solid #344db8;
+  outline-offset: 2px;
+}
+
+.standings-dashboard {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  margin: 1.5rem 0 2rem;
+  padding: 1rem;
+}
+
+.standings-heading,
+.standings-category-heading {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1rem;
+  justify-content: space-between;
+}
+
+.standings-heading h3,
+.standings-category-heading h4 {
+  color: #4d5db3;
+  margin-bottom: 0.25rem;
+}
+
+.standings-heading p,
+.standings-category-heading p,
+.standings-note {
+  color: #666;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.standings-view-switch,
+.standings-result-switch,
+.overall-gender-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.9rem 0;
+}
+
+.standings-view-switch button,
+.standings-result-switch button,
+.overall-gender-switch button {
+  background: #fff;
+  border: 1px solid #4d5db3;
+  border-radius: 6px;
+  color: #4d5db3;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  min-height: 42px;
+  padding: 0.55rem 0.85rem;
+}
+
+.standings-view-switch button[aria-pressed='true'],
+.standings-result-switch button[aria-pressed='true'],
+.overall-gender-switch button[aria-pressed='true'] {
+  background: #4d5db3;
+  color: #fff;
+}
+
+.standings-filters {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.8rem 0;
+}
+
+.standings-filters label,
+.standings-category-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: min(100%, 180px);
+}
+
+.standings-filters label > span,
+.standings-category-select > span {
+  color: #555;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.standings-filters select,
+.standings-category-select select {
+  background: #fff;
+  border: 1px solid #bbb;
+  border-radius: 5px;
+  color: #333;
+  font: inherit;
+  min-height: 42px;
+  max-width: 100%;
+  padding: 0.45rem 0.6rem;
+}
+
+.overall-filters {
+  align-items: flex-end;
+}
+
+.overall-gender-switch {
+  margin: 0;
+}
+
+.standings-category-select {
+  margin: 0.9rem 0;
+  max-width: 620px;
+  width: 100%;
+}
+
+.standings-category-heading {
+  align-items: flex-start;
+  margin: 0.85rem 0 0.5rem;
+}
+
+.standings-hypothetical-label {
+  background: #fff8e1;
+  border-radius: 5px;
+  color: #765200;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  padding: 0.55rem 0.7rem;
+}
+
+.standings-note {
+  background: #fff8e1;
+  border-radius: 5px;
+  margin: 0.65rem 0;
+  padding: 0.6rem 0.7rem;
+}
+
+.standings-table-wrap {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  width: 100%;
+}
+
+.standings-table {
+  border-collapse: collapse;
+  min-width: 980px;
+  text-align: left;
+  width: 100%;
+}
+
+.standings-table th,
+.standings-table td {
+  border-top: 1px solid #eee;
+  padding: 0.6rem 0.5rem;
+  vertical-align: top;
+}
+
+.standings-table thead th {
+  color: #666;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.standings-table tbody th {
+  color: #333;
+  min-width: 150px;
+}
+
+.standings-table tr.is-followed {
+  background: #f2f3ff;
+}
+
+.followed-marker,
+.standings-value-source {
+  color: #4d5db3;
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 600;
+  margin-top: 0.2rem;
+}
+
+.standings-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 155px;
+}
+
+.standings-row-actions button {
+  background: #fff;
+  border: 1px solid #4d5db3;
+  border-radius: 5px;
+  color: #4d5db3;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  min-height: 36px;
+  padding: 0.35rem 0.5rem;
+}
+
 .strategy-dashboard {
   background: #fff;
   border-radius: 8px;
@@ -903,6 +1118,33 @@ body {
 
   .strategy-dashboard {
     padding: 0.8rem;
+  }
+
+  .standings-dashboard {
+    padding: 0.8rem;
+  }
+
+  .standings-heading,
+  .standings-category-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .standings-view-switch,
+  .standings-result-switch,
+  .overall-gender-switch {
+    width: 100%;
+  }
+
+  .standings-view-switch button,
+  .standings-result-switch button,
+  .overall-gender-switch button {
+    flex: 1;
+  }
+
+  .standings-filters label,
+  .standings-category-select {
+    width: 100%;
   }
 
   .strategy-opponent-controls {

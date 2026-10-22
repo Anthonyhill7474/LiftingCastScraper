@@ -194,7 +194,8 @@ public sealed record CompetitionDivisionDto(
     string? RawOrEquipped,
     string? ScoreBy,
     CompetitionLiftConfigurationDto Lifts,
-    IReadOnlyDictionary<string, CompetitionPointsScoreDto>? PointsScores = null);
+    IReadOnlyDictionary<string, CompetitionPointsScoreDto>? PointsScores = null,
+    bool WeightClassResolved = false);
 
 public sealed record CompetitionLiftConfigurationDto(
     bool? Squat,
@@ -204,6 +205,72 @@ public sealed record CompetitionLiftConfigurationDto(
 public sealed record CompetitionPointsScoreDto(
     double? ConfirmedScore,
     double? ProjectedScore);
+
+public sealed record CompetitionStandingsDto(
+    string CompetitionId,
+    string Name,
+    string? Date,
+    string? DateFormat,
+    DateTimeOffset? LastSyncedAtUtc,
+    int UnresolvedMembershipCount,
+    int UnsupportedOverallMembershipCount,
+    IReadOnlyList<CompetitionWeightClassLeaderboardDto> WeightClasses,
+    IReadOnlyList<CompetitionOverallLeaderboardDto> OverallCategories);
+
+public sealed record CompetitionWeightClassLeaderboardDto(
+    string DivisionId,
+    string? DivisionName,
+    string WeightClassId,
+    string? WeightClassName,
+    string? Gender,
+    string? EquipmentCategory,
+    string EventType,
+    string? ScoreBy,
+    string RankingBasis,
+    string? RankingLimitation,
+    IReadOnlyList<CompetitionWeightClassStandingDto> Standings);
+
+public sealed record CompetitionWeightClassStandingDto(
+    string AthleteId,
+    string? AthleteName,
+    double? BodyWeightKg,
+    double? BestSquatKg,
+    double? BestBenchKg,
+    double? BestDeadliftKg,
+    double? SuccessfulLiftSumKg,
+    double? CompleteThreeLiftTotalKg,
+    double? ConfirmedResultKg,
+    double? ProjectedResultKg,
+    bool HasPendingAttempts,
+    int? ConfirmedRank,
+    string ConfirmedStatus,
+    int? ProjectedRank,
+    string ProjectedStatus);
+
+public sealed record CompetitionOverallLeaderboardDto(
+    string Gender,
+    string EquipmentCategory,
+    string EventType,
+    IReadOnlyList<CompetitionOverallStandingDto> Standings);
+
+public sealed record CompetitionOverallStandingDto(
+    string AthleteId,
+    string? AthleteName,
+    double? BodyWeightKg,
+    string DivisionId,
+    string? DivisionName,
+    string WeightClassId,
+    string? WeightClassName,
+    string? ScoreBy,
+    bool HasPendingAttempts,
+    IReadOnlyDictionary<string, CompetitionPointsScoreDto> PointsScores,
+    IReadOnlyDictionary<string, CompetitionOverallRankDto> Rankings);
+
+public sealed record CompetitionOverallRankDto(
+    int? ConfirmedRank,
+    string ConfirmedStatus,
+    int? ProjectedRank,
+    string ProjectedStatus);
 
 public sealed record CompetitionLifterPerformanceDto(
     double? BestSquatKg,
